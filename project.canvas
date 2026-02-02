@@ -1,0 +1,9 @@
+{
+	"nodes":[
+		{"id":"203592fa709f219e","x":-460,"y":-640,"width":310,"height":310,"type":"text","text":"# Web UI"},
+		{"id":"6ae3b882b0063cd5","x":-60,"y":-640,"width":280,"height":310,"type":"text","text":"# Agent Server"},
+		{"id":"e35d3eaa301e35c6","type":"text","text":"# Data Generation & Querying","x":340,"y":-640,"width":280,"height":310},
+		{"id":"861eed02286a3597","type":"text","text":"# Execution Sandbox","x":340,"y":-220,"width":280,"height":320}
+	],
+	"edges":[]
+}

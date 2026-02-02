@@ -1,0 +1,360 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-02-02T15:17:00Z",
+  "description": "CSV Analyst Chat - Curated datasets for natural language analytics",
+  "datasets": [
+    {
+      "id": "ecommerce",
+      "name": "E-commerce Orders",
+      "description": "Retail transaction data with orders, order items, and product inventory. Supports analysis of sales performance, return rates, discount effectiveness, and inventory management.",
+      "domain": "Retail/E-commerce",
+      "version_hash": "sha256:ee605a8c40c2dbd63ddff5589299e654766a8670079e99104283a4e564dafa59",
+      "row_count": 13526,
+      "size_bytes": 510976,
+      "files": [
+        {
+          "name": "orders.csv",
+          "path": "ecommerce/orders.csv",
+          "description": "Core order-level transactions",
+          "row_count": 4018,
+          "schema": {
+            "order_id": {
+              "type": "INTEGER",
+              "description": "Unique order identifier"
+            },
+            "customer_id": {
+              "type": "INTEGER",
+              "description": "Customer identifier"
+            },
+            "order_date": {
+              "type": "DATE",
+              "description": "Order placement date"
+            },
+            "total": {
+              "type": "DECIMAL",
+              "description": "Total order value ($)"
+            },
+            "status": {
+              "type": "VARCHAR",
+              "description": "Order status",
+              "values": [
+                "completed",
+                "returned",
+                "cancelled"
+              ]
+            },
+            "returned": {
+              "type": "BOOLEAN",
+              "description": "Whether order was returned"
+            }
+          }
+        },
+        {
+          "name": "order_items.csv",
+          "path": "ecommerce/order_items.csv",
+          "description": "Line-item details for orders",
+          "row_count": 9008,
+          "schema": {
+            "item_id": {
+              "type": "INTEGER",
+              "description": "Unique line item identifier"
+            },
+            "order_id": {
+              "type": "INTEGER",
+              "description": "FK to orders.order_id"
+            },
+            "product_id": {
+              "type": "INTEGER",
+              "description": "Product identifier"
+            },
+            "category": {
+              "type": "VARCHAR",
+              "description": "Product category",
+              "values": [
+                "Electronics",
+                "Clothing",
+                "Home",
+                "Books",
+                "Toys"
+              ]
+            },
+            "quantity": {
+              "type": "INTEGER",
+              "description": "Items ordered"
+            },
+            "price": {
+              "type": "DECIMAL",
+              "description": "Unit price ($)"
+            },
+            "discount": {
+              "type": "INTEGER",
+              "description": "Discount percentage (0-100)"
+            }
+          }
+        },
+        {
+          "name": "inventory.csv",
+          "path": "ecommerce/inventory.csv",
+          "description": "Current product inventory levels",
+          "row_count": 500,
+          "schema": {
+            "product_id": {
+              "type": "INTEGER",
+              "description": "Unique product identifier"
+            },
+            "name": {
+              "type": "VARCHAR",
+              "description": "Product name"
+            },
+            "category": {
+              "type": "VARCHAR",
+              "description": "Product category"
+            },
+            "stock": {
+              "type": "INTEGER",
+              "description": "Current stock level"
+            }
+          }
+        }
+      ],
+      "relationships": [
+        {
+          "from": "order_items.order_id",
+          "to": "orders.order_id",
+          "type": "many-to-one"
+        },
+        {
+          "from": "order_items.product_id",
+          "to": "inventory.product_id",
+          "type": "many-to-one"
+        }
+      ],
+      "prompts": [
+        "What are the top 10 products by revenue?",
+        "Show me the return rate by category",
+        "What's the average discount by product category?",
+        "Which Electronics products have low stock (under 20)?",
+        "Who are our top 20 customers by total spend?",
+        "Show me returned orders over $100 in the last month"
+      ],
+      "tags": [
+        "retail",
+        "ecommerce",
+        "sales",
+        "inventory",
+        "returns"
+      ]
+    },
+    {
+      "id": "support",
+      "name": "Support Tickets",
+      "description": "Customer support ticket lifecycle and satisfaction data. Supports analysis of SLA compliance, resolution times, customer satisfaction, and support team performance.",
+      "domain": "Customer Support",
+      "version_hash": "sha256:76d7954c42615e95542d306d573e722fa98a67a2003ae665665e5a0e9575c6e4",
+      "row_count": 6417,
+      "size_bytes": 548864,
+      "files": [
+        {
+          "name": "tickets.csv",
+          "path": "support/tickets.csv",
+          "description": "Support ticket records with lifecycle metrics",
+          "row_count": 6417,
+          "schema": {
+            "ticket_id": {
+              "type": "INTEGER",
+              "description": "Unique ticket identifier"
+            },
+            "created_at": {
+              "type": "TIMESTAMP",
+              "description": "Ticket creation timestamp"
+            },
+            "resolved_at": {
+              "type": "TIMESTAMP",
+              "description": "Resolution timestamp (NULL if open)",
+              "nullable": true
+            },
+            "category": {
+              "type": "VARCHAR",
+              "description": "Ticket category",
+              "values": [
+                "Technical",
+                "Billing",
+                "Account",
+                "Product"
+              ]
+            },
+            "priority": {
+              "type": "VARCHAR",
+              "description": "Priority level",
+              "values": [
+                "Low",
+                "Medium",
+                "High",
+                "Critical"
+              ]
+            },
+            "csat_score": {
+              "type": "INTEGER",
+              "description": "Customer satisfaction (1-5, NULL if no response)",
+              "nullable": true
+            },
+            "sla_met": {
+              "type": "BOOLEAN",
+              "description": "Whether SLA was met"
+            },
+            "resolution_time_hours": {
+              "type": "DECIMAL",
+              "description": "Time to resolution in hours (NULL if open)",
+              "nullable": true
+            },
+            "status": {
+              "type": "VARCHAR",
+              "description": "Current ticket status",
+              "values": [
+                "Open",
+                "Resolved",
+                "Closed"
+              ]
+            },
+            "agent_id": {
+              "type": "INTEGER",
+              "description": "Assigned support agent"
+            },
+            "channel": {
+              "type": "VARCHAR",
+              "description": "Support channel",
+              "values": [
+                "Email",
+                "Chat",
+                "Phone"
+              ]
+            }
+          }
+        }
+      ],
+      "relationships": [],
+      "prompts": [
+        "What's our SLA compliance rate by priority level?",
+        "Show me average customer satisfaction score by category",
+        "Which critical tickets have been open the longest?",
+        "What's the average resolution time by category?",
+        "Show me tickets that missed SLA in the last week",
+        "Find resolved tickets with low CSAT scores (1-2 stars) from the last month"
+      ],
+      "tags": [
+        "support",
+        "sla",
+        "csat",
+        "customer-service",
+        "tickets"
+      ]
+    },
+    {
+      "id": "sensors",
+      "name": "IoT Sensor Network",
+      "description": "Environmental monitoring sensor readings with anomaly detection. Supports analysis of sensor health, environmental conditions, anomaly patterns, and predictive maintenance.",
+      "domain": "IoT/Industrial Monitoring",
+      "version_hash": "sha256:d18bc06193f8fc7b6d06dd47c23f52a3acd45e28b847db9e1a613ec2b514ae44",
+      "row_count": 49950,
+      "size_bytes": 4296704,
+      "files": [
+        {
+          "name": "sensors.csv",
+          "path": "sensors/sensors.csv",
+          "description": "Time-series sensor readings with environmental metrics",
+          "row_count": 49950,
+          "schema": {
+            "sensor_id": {
+              "type": "VARCHAR",
+              "description": "Unique sensor identifier"
+            },
+            "timestamp": {
+              "type": "TIMESTAMP",
+              "description": "Reading timestamp"
+            },
+            "location": {
+              "type": "VARCHAR",
+              "description": "Physical location/zone"
+            },
+            "zone": {
+              "type": "VARCHAR",
+              "description": "Logical grouping",
+              "values": [
+                "North",
+                "South",
+                "East",
+                "West"
+              ]
+            },
+            "temperature_c": {
+              "type": "DECIMAL",
+              "description": "Temperature in Celsius",
+              "nullable": true
+            },
+            "humidity_pct": {
+              "type": "DECIMAL",
+              "description": "Relative humidity (0-100)",
+              "nullable": true
+            },
+            "pressure_hpa": {
+              "type": "DECIMAL",
+              "description": "Atmospheric pressure (hPa)",
+              "nullable": true
+            },
+            "vibration_mm_s": {
+              "type": "DECIMAL",
+              "description": "Vibration level (mm/s, NULL for non-industrial)",
+              "nullable": true
+            },
+            "anomaly_flag": {
+              "type": "BOOLEAN",
+              "description": "Whether reading flagged as anomalous"
+            },
+            "anomaly_type": {
+              "type": "VARCHAR",
+              "description": "Type of anomaly (NULL if none)",
+              "nullable": true,
+              "values": [
+                "high_temp",
+                "low_temp",
+                "high_humidity",
+                "sensor_fault",
+                "vibration_alarm"
+              ]
+            },
+            "battery_pct": {
+              "type": "INTEGER",
+              "description": "Battery level (0-100, NULL if powered)",
+              "nullable": true
+            },
+            "status": {
+              "type": "VARCHAR",
+              "description": "Sensor operational status",
+              "values": [
+                "online",
+                "offline",
+                "maintenance"
+              ]
+            }
+          }
+        }
+      ],
+      "relationships": [],
+      "prompts": [
+        "How many anomalies were detected by location in the last 24 hours?",
+        "What are the average temperature and humidity levels by zone?",
+        "Show me all high temperature anomalies from the last week",
+        "Which sensors have battery below 20%?",
+        "What's the current sensor status distribution?",
+        "Find sensors with dangerous vibration levels in the last 6 hours"
+      ],
+      "tags": [
+        "iot",
+        "sensors",
+        "anomaly-detection",
+        "time-series",
+        "monitoring"
+      ]
+    }
+  ]
+}

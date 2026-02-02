@@ -1,0 +1,501 @@
+product_id,name,category,stock
+201,USB Cable,Electronics,145
+202,Keyboard Pro,Electronics,366
+203,Speaker,Electronics,36
+204,Wireless Mouse,Electronics,17
+205,Laptop Stand,Electronics,386
+206,Speaker Mini,Electronics,19
+207,Monitor,Electronics,101
+208,Phone Case Plus,Electronics,7
+209,Webcam,Electronics,0
+210,USB Cable Plus,Electronics,329
+211,Monitor,Electronics,294
+212,USB Cable Mini,Electronics,0
+213,Monitor Deluxe,Electronics,461
+214,Webcam Classic,Electronics,3
+215,Wireless Mouse Deluxe,Electronics,10
+216,USB Cable Pro,Electronics,214
+217,Monitor Mini,Electronics,206
+218,Headphones Plus,Electronics,9
+219,USB Cable Classic,Electronics,293
+220,Keyboard Pro,Electronics,158
+221,Speaker Pro,Electronics,451
+222,Wireless Mouse Pro,Electronics,432
+223,Webcam Mini,Electronics,7
+224,Laptop Stand Deluxe,Electronics,16
+225,Phone Case Deluxe,Electronics,155
+226,Headphones Pro,Electronics,295
+227,Monitor Deluxe,Electronics,479
+228,Laptop Stand Mini,Electronics,5
+229,Speaker Mini,Electronics,0
+230,Wireless Mouse,Electronics,6
+231,Phone Case Classic,Electronics,0
+232,Phone Case Classic,Electronics,290
+233,Monitor Classic,Electronics,25
+234,USB Cable Deluxe,Electronics,404
+235,Monitor Deluxe,Electronics,10
+236,Phone Case Pro,Electronics,389
+237,Monitor Classic,Electronics,279
+238,USB Cable Deluxe,Electronics,17
+239,Laptop Stand Pro,Electronics,6
+240,Speaker Classic,Electronics,326
+241,Webcam Mini,Electronics,0
+242,Webcam Plus,Electronics,8
+243,Laptop Stand,Electronics,0
+244,Charger,Electronics,292
+245,Headphones Pro,Electronics,301
+246,Headphones Plus,Electronics,330
+247,Phone Case Pro,Electronics,406
+248,Keyboard Deluxe,Electronics,12
+249,Charger Classic,Electronics,146
+250,Keyboard,Electronics,19
+251,Speaker Pro,Electronics,23
+252,USB Cable Deluxe,Electronics,137
+253,USB Cable,Electronics,56
+254,Speaker Pro,Electronics,16
+255,Keyboard Classic,Electronics,19
+256,Laptop Stand Mini,Electronics,16
+257,Phone Case Pro,Electronics,0
+258,Phone Case Plus,Electronics,259
+259,Wireless Mouse Deluxe,Electronics,350
+260,USB Cable,Electronics,193
+261,USB Cable Pro,Electronics,18
+262,Charger Pro,Electronics,162
+263,Charger Pro,Electronics,58
+264,Charger Classic,Electronics,0
+265,Speaker,Electronics,494
+266,Keyboard Pro,Electronics,266
+267,Keyboard Mini,Electronics,104
+268,Phone Case,Electronics,155
+269,Charger Plus,Electronics,394
+270,Speaker Deluxe,Electronics,99
+271,Keyboard Plus,Electronics,2
+272,Laptop Stand Deluxe,Electronics,402
+273,Webcam,Electronics,0
+274,Charger Classic,Electronics,291
+275,Headphones,Electronics,61
+276,Headphones,Electronics,365
+277,Keyboard Mini,Electronics,19
+278,Keyboard Classic,Electronics,337
+279,USB Cable Mini,Electronics,309
+280,Speaker Plus,Electronics,124
+281,Webcam Pro,Electronics,5
+282,Monitor Mini,Electronics,3
+283,Wireless Mouse Mini,Electronics,308
+284,USB Cable,Electronics,279
+285,Monitor Pro,Electronics,471
+286,USB Cable Pro,Electronics,6
+287,Charger Classic,Electronics,333
+288,Speaker,Electronics,303
+289,Monitor Deluxe,Electronics,5
+290,Monitor,Electronics,400
+291,Speaker Pro,Electronics,7
+292,Webcam Pro,Electronics,456
+293,Monitor Classic,Electronics,483
+294,Wireless Mouse,Electronics,444
+295,Monitor,Electronics,0
+296,Headphones Deluxe,Electronics,102
+297,Charger Classic,Electronics,307
+298,Wireless Mouse,Electronics,0
+299,Headphones Classic,Electronics,0
+300,Webcam Classic,Electronics,240
+301,Headphones,Electronics,2
+302,Webcam Pro,Electronics,361
+303,USB Cable Plus,Electronics,472
+304,Phone Case Classic,Electronics,493
+305,Keyboard Pro,Electronics,435
+306,Headphones Mini,Electronics,0
+307,Webcam Mini,Electronics,462
+308,Keyboard Plus,Electronics,4
+309,Phone Case,Electronics,133
+310,Keyboard Mini,Electronics,8
+311,Keyboard,Electronics,224
+312,Webcam Plus,Electronics,415
+313,Monitor Plus,Electronics,224
+314,Speaker Plus,Electronics,79
+315,Monitor Pro,Electronics,155
+316,Wireless Mouse,Electronics,196
+317,Webcam Mini,Electronics,281
+318,USB Cable Mini,Electronics,117
+319,Monitor,Electronics,20
+320,Speaker Classic,Electronics,399
+321,Keyboard Plus,Electronics,360
+322,Webcam Classic,Electronics,4
+323,Monitor Classic,Electronics,14
+324,Webcam Mini,Electronics,303
+325,Headphones Pro,Electronics,214
+326,Headphones Classic,Electronics,227
+327,Speaker,Electronics,7
+328,Phone Case Classic,Electronics,184
+329,Charger Mini,Electronics,129
+330,Speaker Mini,Electronics,427
+331,Headphones Deluxe,Electronics,0
+332,Speaker Deluxe,Electronics,191
+333,USB Cable Pro,Electronics,135
+334,Keyboard Pro,Electronics,0
+335,Keyboard Mini,Electronics,413
+336,USB Cable Mini,Electronics,342
+337,Laptop Stand Pro,Electronics,216
+338,Charger Mini,Electronics,1
+339,USB Cable Mini,Electronics,17
+340,Charger,Electronics,489
+341,USB Cable Mini,Electronics,15
+342,Speaker Classic,Electronics,406
+343,Charger Classic,Electronics,476
+344,Speaker Mini,Electronics,300
+345,Charger Pro,Electronics,263
+346,Charger Plus,Electronics,450
+347,Monitor Classic,Electronics,142
+348,Monitor Mini,Electronics,0
+349,Monitor Pro,Electronics,11
+350,Speaker,Electronics,8
+351,Polo Shirt Deluxe,Clothing,7
+352,Jeans Mini,Clothing,297
+353,Shorts Mini,Clothing,0
+354,Polo Shirt Mini,Clothing,319
+355,Cotton T-Shirt Classic,Clothing,1
+356,Dress Plus,Clothing,456
+357,Polo Shirt Classic,Clothing,299
+358,Socks Pro,Clothing,159
+359,Polo Shirt Mini,Clothing,0
+360,Dress Deluxe,Clothing,227
+361,Sweater Mini,Clothing,338
+362,Hoodie,Clothing,323
+363,Socks Deluxe,Clothing,0
+364,Polo Shirt Pro,Clothing,113
+365,Cotton T-Shirt Plus,Clothing,7
+366,Shorts Plus,Clothing,13
+367,Sneakers Mini,Clothing,3
+368,Shorts,Clothing,46
+369,Dress Pro,Clothing,419
+370,Cotton T-Shirt,Clothing,122
+371,Cotton T-Shirt Classic,Clothing,5
+372,Shorts Deluxe,Clothing,7
+373,Shorts Deluxe,Clothing,12
+374,Sweater Classic,Clothing,402
+375,Jeans Pro,Clothing,75
+376,Socks,Clothing,314
+377,Polo Shirt Mini,Clothing,121
+378,Jeans Classic,Clothing,341
+379,Jacket,Clothing,174
+380,Socks,Clothing,309
+381,Cotton T-Shirt Plus,Clothing,358
+382,Dress,Clothing,194
+383,Cotton T-Shirt Mini,Clothing,74
+384,Polo Shirt Plus,Clothing,444
+385,Shorts Deluxe,Clothing,6
+386,Hoodie Deluxe,Clothing,18
+387,Shorts Mini,Clothing,394
+388,Socks Plus,Clothing,8
+389,Jeans Plus,Clothing,144
+390,Shorts Classic,Clothing,214
+391,Dress,Clothing,186
+392,Sweater Mini,Clothing,9
+393,Dress Plus,Clothing,379
+394,Sneakers Classic,Clothing,0
+395,Jacket,Clothing,14
+396,Shorts Classic,Clothing,373
+397,Shorts Deluxe,Clothing,249
+398,Cotton T-Shirt,Clothing,13
+399,Jacket Plus,Clothing,208
+400,Shorts Classic,Clothing,237
+401,Hoodie Plus,Clothing,15
+402,Sneakers Plus,Clothing,4
+403,Jacket Plus,Clothing,18
+404,Sweater Pro,Clothing,16
+405,Sneakers Deluxe,Clothing,409
+406,Hoodie Classic,Clothing,4
+407,Jacket Plus,Clothing,6
+408,Sneakers,Clothing,84
+409,Sneakers,Clothing,303
+410,Sneakers Deluxe,Clothing,346
+411,Shorts,Clothing,313
+412,Sneakers Mini,Clothing,194
+413,Sweater,Clothing,16
+414,Jeans,Clothing,57
+415,Socks Deluxe,Clothing,97
+416,Sweater Classic,Clothing,63
+417,Jacket,Clothing,233
+418,Socks Classic,Clothing,135
+419,Hoodie Mini,Clothing,246
+420,Sneakers Classic,Clothing,176
+421,Socks Classic,Clothing,0
+422,Jeans Pro,Clothing,155
+423,Jeans Pro,Clothing,18
+424,Jeans Pro,Clothing,0
+425,Shorts Deluxe,Clothing,169
+426,Cotton T-Shirt Pro,Clothing,10
+427,Shorts,Clothing,493
+428,Sneakers Deluxe,Clothing,431
+429,Jacket Mini,Clothing,8
+430,Sweater Plus,Clothing,56
+431,Cotton T-Shirt Pro,Clothing,324
+432,Socks Plus,Clothing,259
+433,Sneakers Deluxe,Clothing,159
+434,Hoodie Classic,Clothing,61
+435,Socks,Clothing,396
+436,Dress Classic,Clothing,3
+437,Jacket Deluxe,Clothing,314
+438,Socks,Clothing,364
+439,Sneakers Classic,Clothing,0
+440,Sweater Mini,Clothing,246
+441,Sneakers Pro,Clothing,243
+442,Shorts,Clothing,229
+443,Dress Plus,Clothing,459
+444,Sweater Plus,Clothing,273
+445,Sneakers Deluxe,Clothing,436
+446,Hoodie,Clothing,181
+447,Sneakers Plus,Clothing,13
+448,Hoodie,Clothing,297
+449,Shorts Mini,Clothing,0
+450,Hoodie Plus,Clothing,275
+451,Shorts,Clothing,18
+452,Sweater Plus,Clothing,377
+453,Shorts,Clothing,0
+454,Socks Pro,Clothing,179
+455,Hoodie,Clothing,67
+456,Jacket,Clothing,80
+457,Sweater Mini,Clothing,169
+458,Hoodie Deluxe,Clothing,16
+459,Shorts Pro,Clothing,94
+460,Polo Shirt Pro,Clothing,280
+461,Sweater,Clothing,14
+462,Dress Classic,Clothing,1
+463,Sneakers Deluxe,Clothing,19
+464,Socks Deluxe,Clothing,96
+465,Shorts Classic,Clothing,190
+466,Hoodie Classic,Clothing,11
+467,Jacket Deluxe,Clothing,13
+468,Jacket Mini,Clothing,0
+469,Shorts Deluxe,Clothing,215
+470,Polo Shirt Deluxe,Clothing,353
+471,Sweater Mini,Clothing,84
+472,Hoodie Classic,Clothing,4
+473,Shorts,Clothing,253
+474,Cotton T-Shirt Deluxe,Clothing,5
+475,Jeans Mini,Clothing,155
+476,Dress Classic,Clothing,352
+477,Jeans Plus,Clothing,459
+478,Hoodie Mini,Clothing,340
+479,Shorts Classic,Clothing,0
+480,Jeans Pro,Clothing,491
+481,Sneakers Pro,Clothing,242
+482,Jeans Deluxe,Clothing,71
+483,Shorts Pro,Clothing,482
+484,Cotton T-Shirt,Clothing,2
+485,Sneakers Plus,Clothing,5
+486,Jacket Classic,Clothing,369
+487,Sweater Pro,Clothing,13
+488,Socks Deluxe,Clothing,19
+489,Sweater Pro,Clothing,150
+490,Shorts Plus,Clothing,480
+491,Shorts Plus,Clothing,100
+492,Jeans Mini,Clothing,320
+493,Sneakers Deluxe,Clothing,373
+494,Sneakers Mini,Clothing,121
+495,Polo Shirt Mini,Clothing,13
+496,Socks Plus,Clothing,378
+497,Sneakers,Clothing,357
+498,Polo Shirt Plus,Clothing,0
+499,Cotton T-Shirt Classic,Clothing,446
+500,Sneakers Pro,Clothing,200
+501,Jacket Deluxe,Clothing,9
+502,Sweater Deluxe,Clothing,0
+503,Cotton T-Shirt Plus,Clothing,37
+504,Socks Plus,Clothing,66
+505,Sneakers Plus,Clothing,109
+506,Jacket Pro,Clothing,468
+507,Dress Classic,Clothing,159
+508,Sweater Plus,Clothing,266
+509,Sneakers Deluxe,Clothing,431
+510,Jeans Mini,Clothing,92
+511,Jacket Deluxe,Clothing,223
+512,Hoodie Plus,Clothing,0
+513,Polo Shirt,Clothing,4
+514,Shorts Plus,Clothing,364
+515,Sneakers Classic,Clothing,12
+516,Jeans Deluxe,Clothing,1
+517,Socks Classic,Clothing,8
+518,Jeans Deluxe,Clothing,485
+519,Sneakers Deluxe,Clothing,91
+520,Cotton T-Shirt,Clothing,16
+521,Jeans,Clothing,18
+522,Sweater Mini,Clothing,363
+523,Hoodie Mini,Clothing,392
+524,Sweater Mini,Clothing,446
+525,Shorts Classic,Clothing,163
+526,Coffee Maker Deluxe,Home,15
+527,Candle Pro,Home,70
+528,Storage Box Classic,Home,350
+529,Storage Box,Home,7
+530,Lamp Mini,Home,0
+531,Pillow Deluxe,Home,30
+532,Coffee Maker Plus,Home,5
+533,Rug Pro,Home,0
+534,Wall Art Pro,Home,436
+535,Pillow Plus,Home,423
+536,Rug,Home,5
+537,Towel Set Classic,Home,6
+538,Lamp Deluxe,Home,87
+539,Coffee Maker Plus,Home,141
+540,Rug Plus,Home,0
+541,Blanket,Home,14
+542,Wall Art,Home,263
+543,Candle Plus,Home,75
+544,Candle Classic,Home,2
+545,Wall Art Plus,Home,35
+546,Coffee Maker Mini,Home,238
+547,Lamp Mini,Home,247
+548,Lamp,Home,5
+549,Lamp Pro,Home,19
+550,Wall Art Deluxe,Home,17
+551,Blanket Mini,Home,240
+552,Lamp Deluxe,Home,18
+553,Pillow Mini,Home,136
+554,Picture Frame Plus,Home,224
+555,Picture Frame Deluxe,Home,0
+556,Picture Frame Plus,Home,211
+557,Towel Set Deluxe,Home,54
+558,Lamp,Home,0
+559,Lamp Deluxe,Home,435
+560,Towel Set Classic,Home,0
+561,Wall Art Classic,Home,4
+562,Picture Frame Plus,Home,404
+563,Picture Frame Deluxe,Home,0
+564,Blanket Classic,Home,4
+565,Rug Classic,Home,16
+566,Pillow,Home,18
+567,Storage Box,Home,313
+568,Pillow Mini,Home,412
+569,Rug Classic,Home,305
+570,Coffee Maker Classic,Home,444
+571,Blanket,Home,10
+572,Storage Box Plus,Home,0
+573,Towel Set Classic,Home,55
+574,Towel Set Deluxe,Home,35
+575,Lamp Deluxe,Home,212
+576,Picture Frame Mini,Home,12
+577,Blanket Deluxe,Home,19
+578,Rug,Home,99
+579,Towel Set Classic,Home,0
+580,Lamp Plus,Home,237
+581,Candle Classic,Home,159
+582,Pillow Classic,Home,14
+583,Lamp Plus,Home,323
+584,Candle Classic,Home,43
+585,Pillow Mini,Home,48
+586,Coffee Maker Pro,Home,7
+587,Towel Set Plus,Home,4
+588,Coffee Maker Mini,Home,109
+589,Towel Set Mini,Home,137
+590,Wall Art Classic,Home,432
+591,Storage Box,Home,2
+592,Picture Frame,Home,59
+593,Storage Box Classic,Home,227
+594,Picture Frame Plus,Home,1
+595,Storage Box Pro,Home,336
+596,Candle Deluxe,Home,65
+597,Picture Frame,Home,19
+598,Picture Frame Classic,Home,0
+599,Blanket Deluxe,Home,11
+600,Towel Set,Home,78
+601,Wall Art Classic,Home,12
+602,Storage Box Deluxe,Home,350
+603,Towel Set Pro,Home,9
+604,Pillow Pro,Home,409
+605,Lamp Pro,Home,341
+606,Candle Mini,Home,409
+607,Rug Mini,Home,471
+608,Rug Deluxe,Home,339
+609,Storage Box Deluxe,Home,15
+610,Lamp Mini,Home,175
+611,Blanket Classic,Home,0
+612,Wall Art,Home,15
+613,Coffee Maker,Home,10
+614,Lamp Deluxe,Home,457
+615,Lamp Classic,Home,216
+616,Candle Classic,Home,425
+617,Coffee Maker Mini,Home,312
+618,Pillow Plus,Home,276
+619,Towel Set,Home,435
+620,Storage Box Deluxe,Home,0
+621,Towel Set,Home,15
+622,Candle Classic,Home,101
+623,Storage Box Plus,Home,218
+624,Picture Frame Plus,Home,46
+625,Storage Box,Home,18
+626,Science Fiction Plus,Books,5
+627,Mystery,Books,92
+628,Mystery Plus,Books,377
+629,Science Fiction Pro,Books,500
+630,Cookbook Plus,Books,349
+631,Mystery Pro,Books,444
+632,Poetry,Books,236
+633,Poetry Plus,Books,0
+634,Self-Help Pro,Books,194
+635,History Pro,Books,5
+636,Biography,Books,4
+637,Poetry Classic,Books,472
+638,Poetry,Books,468
+639,Children's Book Pro,Books,98
+640,Biography Pro,Books,414
+641,Children's Book Pro,Books,42
+642,Science Fiction Plus,Books,141
+643,History Classic,Books,15
+644,Travel Guide Classic,Books,16
+645,Travel Guide Plus,Books,312
+646,History Mini,Books,418
+647,Science Fiction Classic,Books,102
+648,Travel Guide Classic,Books,9
+649,Fiction Novel Deluxe,Books,210
+650,Poetry,Books,284
+651,Cookbook Plus,Books,0
+652,Biography Plus,Books,282
+653,Biography Mini,Books,0
+654,Travel Guide Mini,Books,496
+655,Fiction Novel Mini,Books,0
+656,Poetry Plus,Books,3
+657,Mystery Pro,Books,0
+658,Cookbook Deluxe,Books,425
+659,Biography Pro,Books,0
+660,History Deluxe,Books,408
+661,History Mini,Books,483
+662,Cookbook,Books,5
+663,Poetry Deluxe,Books,236
+664,Cookbook Plus,Books,4
+665,Fiction Novel Pro,Books,426
+666,Children's Book Mini,Books,0
+667,History Classic,Books,343
+668,Poetry Classic,Books,5
+669,Self-Help Mini,Books,0
+670,Mystery Pro,Books,115
+671,Cookbook Classic,Books,54
+672,Poetry Classic,Books,279
+673,Poetry,Books,16
+674,Fiction Novel Deluxe,Books,12
+675,Self-Help Deluxe,Books,0
+676,Puzzle Plus,Toys,4
+677,Educational Game Deluxe,Toys,88
+678,Board Game Plus,Toys,436
+679,Action Figure Deluxe,Toys,376
+680,Stuffed Animal Deluxe,Toys,5
+681,Puzzle Deluxe,Toys,254
+682,Board Game Plus,Toys,7
+683,Board Game Plus,Toys,283
+684,Ball Classic,Toys,38
+685,Building Blocks Plus,Toys,2
+686,RC Car Plus,Toys,12
+687,Ball Mini,Toys,478
+688,Ball Plus,Toys,274
+689,Stuffed Animal Plus,Toys,285
+690,Doll,Toys,60
+691,Ball Classic,Toys,112
+692,Art Set Plus,Toys,3
+693,RC Car Deluxe,Toys,15
+694,Educational Game Deluxe,Toys,373
+695,Stuffed Animal Plus,Toys,392
+696,RC Car Classic,Toys,160
+697,Board Game,Toys,227
+698,RC Car Classic,Toys,367
+699,Action Figure,Toys,15
+700,Board Game Pro,Toys,0

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Agent Server (FastAPI + LangChain)
+  agent-server:
+    build:
+      context: ./agent-server
+      dockerfile: Dockerfile
+    container_name: csv-analyst-agent
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EXECUTION_MODE=docker
+      - RUNNER_IMAGE=csv-analyst-runner:latest
+      - RUNNER_TIMEOUT=10
+      - RUNNER_MAX_ROWS=200
+      - LOG_LEVEL=info
+    volumes:
+      - ./datasets:/app/datasets:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # For DockerExecutor
+      - agent-capsules:/app/capsules
+    depends_on:
+      - runner
+    networks:
+      - csv-analyst-net
+    restart: unless-stopped
+
+  # Runner (DuckDB in sandbox)
+  # NOTE: This service is just for building the image.
+  # Actual execution happens via DockerExecutor creating ephemeral containers.
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    image: csv-analyst-runner:latest
+    command: ["echo", "Runner image built successfully"]
+
+  # UI (LangChain Agent UI)
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: csv-analyst-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_AGENT_URL=http://agent-server:8000
+      - NODE_ENV=production
+    depends_on:
+      - agent-server
+    networks:
+      - csv-analyst-net
+    restart: unless-stopped
+
+volumes:
+  agent-capsules:
+    driver: local
+
+networks:
+  csv-analyst-net:
+    driver: bridge

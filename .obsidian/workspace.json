@@ -21,14 +21,17 @@
             "id": "7734673c9f1904ae",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "canvas",
               "state": {
-                "file": "CHANGELOG.md",
-                "mode": "source",
-                "source": false
+                "file": "project.canvas",
+                "viewState": {
+                  "x": 5.19999999999996,
+                  "y": 0,
+                  "zoom": -0.4
+                }
               },
-              "icon": "lucide-file",
-              "title": "CHANGELOG"
+              "icon": "lucide-layout-dashboard",
+              "title": "project"
             }
           }
         ],
@@ -89,7 +92,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 209.5
+    "width": 209.5,
+    "collapsed": true
   },
   "right": {
     "id": "e845602f7a3886cc",
@@ -105,7 +109,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "CHANGELOG.md",
+                "file": "project.canvas",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -115,7 +119,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for CHANGELOG"
+              "title": "Backlinks for project"
             }
           },
           {
@@ -124,12 +128,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "CHANGELOG.md",
+                "file": "project.canvas",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from CHANGELOG"
+              "title": "Outgoing links from project"
             }
           },
           {
@@ -167,13 +171,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "CHANGELOG.md",
+                "file": "project.canvas",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of CHANGELOG"
+              "title": "Outline of project"
             }
           }
         ]
@@ -196,13 +200,35 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
-    "docs/prompts",
-    "Makefile",
-    "docs/PRD/Deployment PRD.md",
+    "datasets/README.md.tmp.24216.1770067476403",
+    "TODO.md.tmp.24216.1770067435900",
+    "datasets/registry.json",
+    "scripts/generate_registry.py",
+    "scripts/generate_registry.py.tmp.24216.1770067412338",
+    "scripts/validate_datasets.py",
+    "scripts/validate_datasets.py.tmp.24216.1770067192730",
+    "datasets/GENERATION_REPORT.md",
+    "datasets/GENERATION_REPORT.md.tmp.24216.1770067166113",
+    "datasets/sensors/sensors.csv",
+    "datasets/sensors",
+    "datasets/support/tickets.csv",
+    "docs/DECISIONS.md",
+    "docs/use-cases/README.md",
+    "docs/use-cases/UC3-IoT-Sensors-Dataset.md",
+    "docs/use-cases/UC2-Support-Tickets-Dataset.md",
+    "docs/use-cases/UC1-Ecommerce-Dataset.md",
+    "RECOMMENDATIONS.md",
+    "CONTRIBUTING.md",
+    "datasets/README.md",
+    "runner/README.md",
+    "agent-server/README.md",
+    "CLAUDE.md",
     "CHANGELOG.md",
+    "project.canvas",
+    "docs/IMPLEMENTATION_PLAN.md",
+    "TODO.md",
+    "docs/PRD/Deployment PRD.md",
     "docs/PRD/Core PRD.md",
-    "docs/PRD",
-    "README.md",
-    "docs"
+    "README.md"
   ]
 }

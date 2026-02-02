@@ -1,0 +1,56 @@
+# Version control
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+TODO.md
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+.obsidian/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+.venv*/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests (included in image for now, can exclude later)
+# tests/
+
+# CI
+.github/
