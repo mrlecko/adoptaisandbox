@@ -64,21 +64,24 @@
 **PRD Mapping:** Section 12, FR-D1-D3
 
 ### P1.2 Query Plan JSON DSL (FR-Q1, FR-Q2, FR-Q3)
-- [ ] Define QueryPlan JSON schema (Pydantic models)
-  - [ ] dataset_id, table, select, filters, group_by, order_by, limit, notes
-  - [ ] Filter operators: =, !=, <, <=, >, >=, in, between, contains, startswith, endswith
-  - [ ] Aggregations: sum, avg, min, max, count, count_distinct
-- [ ] Implement schema validator (Pydantic)
-- [ ] Implement QueryPlan → SQL compiler
-  - [ ] Handle column selection
-  - [ ] Handle filters (including LIKE patterns for contains/startswith/endswith)
-  - [ ] Handle GROUP BY
-  - [ ] Handle aggregations
-  - [ ] Handle ORDER BY
-  - [ ] Enforce LIMIT (default 200 if missing)
-  - [ ] Deterministic compilation
-- [ ] Write unit tests for compiler (good/bad plans)
-- [ ] Write unit tests for edge cases (missing limit, too many columns)
+- [x] Define QueryPlan JSON schema (Pydantic models)
+  - [x] dataset_id, table, select, filters, group_by, order_by, limit, notes
+  - [x] Filter operators: =, !=, <, <=, >, >=, in, between, contains, startswith, endswith
+  - [x] Aggregations: sum, avg, min, max, count, count_distinct
+- [x] Implement schema validator (Pydantic)
+- [x] Implement QueryPlan → SQL compiler
+  - [x] Handle column selection
+  - [x] Handle filters (including LIKE patterns for contains/startswith/endswith)
+  - [x] Handle GROUP BY
+  - [x] Handle aggregations
+  - [x] Handle ORDER BY
+  - [x] Enforce LIMIT (default 200 if missing)
+  - [x] Deterministic compilation
+- [x] Write unit tests for compiler (good/bad plans)
+- [x] Write unit tests for edge cases (missing limit, too many columns)
+- [x] Implement data exfiltration heuristic
+- [x] Create demo script showing usage
+- [x] Design extensible QueryRequest for future query types
 
 **PRD Mapping:** Section 9, FR-Q1-Q3
 

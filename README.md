@@ -259,15 +259,38 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 
 ## Roadmap
 
-**MVP (Current)**
-- [x] Core agent with JSON query DSL
-- [x] SQL validation and sandboxing
-- [x] Docker and K8s execution modes
-- [x] 3 curated datasets
-- [ ] Production hosting
-- [ ] CI/CD pipeline
+**Phase 0: Bootstrap & Planning** ✅ Complete
+- [x] Project structure and documentation
+- [x] PRD documents (Core + Deployment)
+- [x] Use case specifications
+- [x] Architecture decisions
 
-**Stretch Goals**
+**Phase 1: Foundations** 🚧 In Progress
+- [x] Dataset generation & registry (FR-D1, FR-D2, FR-D3)
+- [x] Query plan JSON DSL (FR-Q1, FR-Q2, FR-Q3)
+- [ ] SQL validation (FR-SQL1, FR-SQL2, FR-SQL3)
+- [ ] Runner (SQL mode) (FR-X1-X4) ← **NEXT**
+- [ ] Docker executor (local mode)
+- [ ] Agent server core
+- [ ] Run capsule storage
+- [ ] UI integration
+
+**Phase 2: Production Shape** ⏭️ Pending
+- [ ] Kubernetes Job executor
+- [ ] Helm chart
+- [ ] Security hardening
+- [ ] Reliability & error handling
+- [ ] Observability
+- [ ] Test suite
+
+**Phase 3: Polish & Deployment** ⏭️ Pending
+- [ ] Documentation
+- [ ] Hosting deployment
+- [ ] CI/CD pipeline
+- [ ] Polish & UX improvements
+- [ ] Acceptance testing
+
+**Stretch Goals** 🔮 Future
 - [ ] Restricted Python execution mode
 - [ ] Chart visualization
 - [ ] Query caching

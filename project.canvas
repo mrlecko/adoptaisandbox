@@ -1,9 +1,19 @@
 {
 	"nodes":[
-		{"id":"203592fa709f219e","x":-460,"y":-640,"width":310,"height":310,"type":"text","text":"# Web UI"},
-		{"id":"6ae3b882b0063cd5","x":-60,"y":-640,"width":280,"height":310,"type":"text","text":"# Agent Server"},
-		{"id":"e35d3eaa301e35c6","type":"text","text":"# Data Generation & Querying","x":340,"y":-640,"width":280,"height":310},
-		{"id":"861eed02286a3597","type":"text","text":"# Execution Sandbox","x":340,"y":-220,"width":280,"height":320}
+		{"id":"6ae3b882b0063cd5","x":-140,"y":-620,"width":280,"height":310,"type":"text","text":"# Agent Server \n\nlangchain / fastAPI"},
+		{"id":"861eed02286a3597","type":"text","text":"# Execution Sandbox","x":-140,"y":-180,"width":280,"height":320},
+		{"id":"d034bbf328a1a726","x":-660,"y":-1000,"width":720,"height":240,"type":"text","text":"# Use Cases\n\n- Ecommerce Dataset\n- Support Ticket Dataset\n- IoT Sensors Dataset\n"},
+		{"id":"12a833bce8320f97","x":-720,"y":-1560,"width":936,"height":280,"type":"text","text":"# Infra\n\ndocker / k8s / helm"},
+		{"id":"203592fa709f219e","x":-755,"y":-620,"width":310,"height":310,"type":"text","text":"# Web UI\n\n#### langchain web agent chat  UI\n\nhttps://docs.langchain.com/oss/python/langchain/ui"},
+		{"id":"e35d3eaa301e35c6","type":"text","text":"# Data Generation & Querying\n\n3 Use Cases\n\nFor each\n- [ ] Dataset Generator\n- [ ] Dataset Validator\n- [ ] Golden Paths / Queries","x":420,"y":-180,"width":280,"height":320},
+		{"id":"b21e6bb3175691d2","x":-734,"y":412,"width":482,"height":688,"type":"text","text":"# Arbitrary Docker Image\n\npython:3.13-slim\nmountpoint `/work`\n\n```dockerfile\nFROM python:3.11-slim\n\n# system deps (node/bash/jq so all witness languages work)\nRUN apt-get update && apt-get install -y --no-install-recommends \\\n    nodejs curl bash jq ca-certificates \\\n  && rm -rf /var/lib/apt/lists/*\n\n# working dir (we will mount the project at /work)\nWORKDIR /work\n\n# preinstall Python deps from your requirements\nCOPY requirements.txt /tmp/requirements.txt\nRUN pip install -U pip && pip install -r /tmp/requirements.txt\n\n# default entry; we'll pass the script path and flags at run-time\nENTRYPOINT [\"python3\"]\n```"},
+		{"id":"2f69f79cbbf0c1b1","x":180,"y":412,"width":520,"height":188,"type":"text","text":"# MicroSandbox\n\nhttps://github.com/zerocore-ai/microsandbox"}
 	],
-	"edges":[]
+	"edges":[
+		{"id":"2fdba4fc3db41d3f","fromNode":"861eed02286a3597","fromSide":"bottom","toNode":"b21e6bb3175691d2","toSide":"top","label":"Option A"},
+		{"id":"ca1401fd4692d5d7","fromNode":"861eed02286a3597","fromSide":"bottom","toNode":"2f69f79cbbf0c1b1","toSide":"top","label":"Option B"},
+		{"id":"449f80ad70cf4f51","fromNode":"6ae3b882b0063cd5","fromSide":"bottom","toNode":"861eed02286a3597","toSide":"top","fromEnd":"arrow","label":"invokes via HTTP"},
+		{"id":"f548b1c9a1bb3ef5","fromNode":"861eed02286a3597","fromSide":"right","toNode":"e35d3eaa301e35c6","toSide":"left","label":"uses"},
+		{"id":"5a6bed47f9621aef","fromNode":"203592fa709f219e","fromSide":"right","toNode":"6ae3b882b0063cd5","toSide":"left","fromEnd":"arrow","label":"https\nstream IO"}
+	]
 }

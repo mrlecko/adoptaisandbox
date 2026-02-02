@@ -9,15 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial project structure and directory organization
-- Project documentation (README.md, CLAUDE.md)
-- Development tooling (Makefile stub)
+- Project documentation (README.md, CLAUDE.md, CONTRIBUTING.md)
+- Development tooling (Makefile with 30+ commands)
 - Git repository initialization
 - Comprehensive TODO.md with phased implementation plan
 - PRD documents (core and deployment)
+- Use case specifications for 3 datasets with 18 golden queries
+- Decision log (DECISIONS.md) documenting architectural choices
 - .gitignore for Python, Node, and common IDE files
 
+**Datasets (Phase 1.1)**:
+- Data generation scripts for 3 datasets (deterministic, seeded random)
+- E-commerce dataset: 13,526 rows (orders, items, inventory)
+- Support tickets dataset: 6,417 rows (ticket lifecycle data)
+- IoT sensors dataset: 49,950 rows (time-series with anomalies)
+- Dataset registry (registry.json) with schemas, prompts, version hashes
+- Dataset validation script with quality checks
+- Comprehensive dataset documentation (README.md, GENERATION_REPORT.md)
+
+**QueryPlan DSL (Phase 1.2)**:
+- Pydantic models for structured query representation
+- QueryPlan, Filter, Aggregation, SelectColumn, OrderBy models
+- 11 filter operators (comparison, list, pattern, NULL checks)
+- 6 aggregation functions (count, sum, avg, min, max, count_distinct)
+- SQL compiler with deterministic QueryPlan → SQL compilation
+- DuckDB-compatible SQL generation
+- SQL injection prevention (identifier validation, value escaping)
+- Data exfiltration heuristic for suspicious queries
+- QueryRequest envelope for extensible query types (plan, sql, python, json_query)
+- Comprehensive test suite: 66 tests (100% pass rate)
+- Demo script with 7 usage examples
+- Full documentation (agent-server/README.md, QUERYPLAN_DSL_SPEC.md)
+
 ### Changed
-- N/A
+- Updated CLAUDE.md with dataset generation and testing guidance
+- Updated README.md with current project status
+- Updated TODO.md with completed tasks (Phase 0.1, 1.1, 1.2)
 
 ### Deprecated
 - N/A
@@ -29,7 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - N/A
 
 ### Security
-- N/A
+- SQL injection prevention in QueryPlan compiler
+- Data exfiltration detection heuristic
+- Dataset version hashing for integrity
 
 ---
 

@@ -184,6 +184,246 @@ docs/            → PRDs, implementation plans, runbooks
 - **DuckDB Docs**: https://duckdb.org/docs/
 - **FastAPI Docs**: https://fastapi.tiangolo.com/
 
+## Working with Datasets
+
+### Generating Datasets
+
+All datasets are **deterministically generated** using seeded random:
+
+```bash
+# Generate individual datasets
+python3 scripts/generate_ecommerce_dataset.py    # Seed: 42
+python3 scripts/generate_support_dataset.py      # Seed: 43
+python3 scripts/generate_sensors_dataset.py      # Seed: 44
+
+# Generate registry with version hashes
+python3 scripts/generate_registry.py
+
+# Validate datasets
+python3 scripts/validate_datasets.py
+```
+
+**Location**: `datasets/`
+- `ecommerce/` - 3 files, 13,526 rows
+- `support/` - 1 file, 6,417 rows
+- `sensors/` - 1 file, 49,950 rows
+- `registry.json` - Metadata catalog
+
+**Key Points**:
+- Same seeds = identical data every time
+- Version hashes (SHA256) ensure reproducibility
+- Datasets are small (~5MB total)
+- Ready to be baked into runner Docker image
+
+### Dataset Registry
+
+The registry (`datasets/registry.json`) contains:
+- Dataset metadata (ID, name, description)
+- Full schemas with column types
+- 6 suggested prompts per dataset (18 total)
+- SHA256 version hashes
+- Foreign key relationships
+
+Load registry in Python:
+```python
+import json
+with open('datasets/registry.json') as f:
+    registry = json.load(f)
+```
+
+## Working with QueryPlan DSL
+
+### Creating Query Plans
+
+```python
+from app.models.query_plan import (
+    QueryPlan, Filter, FilterOperator,
+    Aggregation, AggregationFunction,
+    SelectColumn, OrderBy, SortDirection
+)
+from app.validators.compiler import QueryPlanCompiler
+
+# Example: Top products by revenue
+plan = QueryPlan(
+    dataset_id="ecommerce",
+    table="order_items",
+    select=[
+        SelectColumn(column="product_id"),
+        Aggregation(func=AggregationFunction.SUM, column="price", alias="revenue")
+    ],
+    group_by=["product_id"],
+    order_by=[OrderBy(expr="revenue", direction=SortDirection.DESC)],
+    limit=10
+)
+
+# Compile to SQL
+compiler = QueryPlanCompiler()
+sql = compiler.compile(plan)
+```
+
+### Running QueryPlan Demo
+
+```bash
+cd agent-server
+python3 demo_query_plan.py
+```
+
+Shows 7 demos covering all features.
+
+### QueryPlan Key Points
+
+- **Validated**: Pydantic catches errors before SQL generation
+- **Deterministic**: Same plan = same SQL
+- **Secure**: Identifier validation, value escaping, exfil detection
+- **Extensible**: QueryRequest supports future query types (Python, JSON)
+- **DuckDB-optimized**: Generated SQL works with DuckDB
+
+### Filter Operators
+
+- `=`, `!=`, `<`, `<=`, `>`, `>=` - Comparison
+- `in` - List membership
+- `between` - Range [low, high]
+- `contains`, `startswith`, `endswith` - String patterns (LIKE)
+- `is_null`, `is_not_null` - NULL checks
+
+### Aggregations
+
+- `count`, `count_distinct`, `sum`, `avg`, `min`, `max`
+
+## Testing
+
+### Running Tests
+
+```bash
+# All unit tests (66 tests)
+pytest tests/unit/ -v
+
+# QueryPlan model tests (36 tests)
+pytest tests/unit/test_query_plan.py -v
+
+# Compiler tests (30 tests)
+pytest tests/unit/test_compiler.py -v
+
+# With coverage
+pytest tests/unit/ --cov=app.models --cov=app.validators --cov-report=html
+
+# Quick run
+pytest tests/unit/ -q
+```
+
+### Test Organization
+
+```
+tests/
+├── unit/
+│   ├── test_query_plan.py    # Model validation tests
+│   └── test_compiler.py       # SQL compilation tests
+├── integration/               # (Future) End-to-end tests
+└── security/                  # (Future) Red team tests
+```
+
+### Test Coverage
+
+**Current**: 66 tests, 100% pass rate
+- Filter validation (9 tests)
+- SelectColumn validation (3 tests)
+- Aggregation validation (1 test)
+- QueryPlan validation (12 tests)
+- QueryRequest validation (8 tests)
+- SQL compilation (18 tests)
+- Security features (4 tests)
+- Golden queries (3 tests)
+- Complex scenarios (8 tests)
+
+## Development Commands
+
+### Common Tasks
+
+```bash
+# Generate datasets
+python3 scripts/generate_ecommerce_dataset.py
+python3 scripts/generate_support_dataset.py
+python3 scripts/generate_sensors_dataset.py
+python3 scripts/generate_registry.py
+
+# Validate datasets
+python3 scripts/validate_datasets.py
+
+# Run tests
+pytest tests/unit/ -v
+
+# Run demo
+cd agent-server && python3 demo_query_plan.py
+
+# Future: Start development environment
+make dev
+
+# Future: Run smoke tests
+make smoke
+```
+
+### Makefile Commands
+
+The Makefile contains 30+ commands. Key ones:
+
+```bash
+make help          # Show all commands
+make install       # Install dependencies
+make dev           # Start local environment (future)
+make test          # Run all tests
+make test-unit     # Unit tests only
+make lint          # Run linters
+make format        # Auto-format code
+make k8s-up        # Create local K8s cluster
+make helm-install  # Deploy via Helm
+make clean         # Clean build artifacts
+```
+
+## Current Project Status
+
+**Completed (✅)**:
+- Phase 0.1: Project bootstrap, PRDs, decisions
+- Phase 1.1: Dataset generation, registry, validation
+- Phase 1.2: QueryPlan DSL, SQL compiler, tests
+
+**In Progress (🚧)**:
+- Phase 1.4: Runner (DuckDB in sandbox) - NEXT
+
+**Pending (⏭️)**:
+- Phase 1.3: SQL validator (denylist)
+- Phase 1.5: Docker executor
+- Phase 1.6: Agent server core
+- Phase 1.7: Run capsule storage
+- Phase 1.8: UI integration
+
+See `TODO.md` for detailed task breakdown.
+
+## Important File Locations
+
+**Datasets**:
+- `datasets/` - CSV files
+- `datasets/registry.json` - Metadata catalog
+- `scripts/generate_*_dataset.py` - Generators
+
+**QueryPlan DSL**:
+- `agent-server/app/models/query_plan.py` - Models
+- `agent-server/app/validators/compiler.py` - SQL compiler
+- `agent-server/demo_query_plan.py` - Demo script
+
+**Tests**:
+- `tests/unit/test_query_plan.py` - Model tests
+- `tests/unit/test_compiler.py` - Compiler tests
+
+**Documentation**:
+- `README.md` - Main project docs
+- `CLAUDE.md` - This file (AI assistant context)
+- `CHANGELOG.md` - Version history
+- `TODO.md` - Task tracking
+- `CONTRIBUTING.md` - Contribution guidelines
+- `docs/DECISIONS.md` - Architecture decisions
+- `docs/use-cases/` - Dataset specifications
+- `agent-server/README.md` - QueryPlan docs
+
 ## Session Handoff Checklist
 
 When starting a new session:
@@ -191,14 +431,17 @@ When starting a new session:
 2. Check CHANGELOG.md for recent changes
 3. Review relevant PRD sections for context
 4. Check git status for uncommitted work
-5. Ask user for current priority if unclear
+5. Run `pytest tests/unit/ -q` to verify tests pass
+6. Ask user for current priority if unclear
 
 When ending a session:
 1. Update TODO.md with task status
 2. Add entry to CHANGELOG.md if significant changes made
-3. Commit work with descriptive message
-4. Note any blockers or next steps in TODO.md
-5. Update this file if major architecture decisions made
+3. Update CLAUDE.md with new guidance (commands, file locations, etc.)
+4. Run tests to ensure nothing broken
+5. Commit work with descriptive message
+6. Note any blockers or next steps in TODO.md
+7. Update this file if major architecture decisions made
 
 ## Questions to Ask User
 
