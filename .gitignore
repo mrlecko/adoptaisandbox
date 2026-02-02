@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv*/
+.env
+.env.*
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (if any)
+node_modules/
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build & wheels
+dist/
+build/
+*.egg-info/
+
