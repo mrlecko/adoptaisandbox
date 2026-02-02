@@ -142,6 +142,10 @@ docs/            → PRDs, implementation plans, runbooks
 4. **LangChain Agent UI starter** used as-is (minimal customization)
 5. **Default row limit 200** to prevent accidental large exports
 6. **DuckDB read-only mode** (CSVs loaded per query, no persistence)
+7. **Custom Docker Runner for MVP** (not MicroSandbox) for simplicity and control
+   - MicroSandbox integration planned for Phase 4 (post-MVP)
+   - See Decision 11 in DECISIONS.md
+   - Abstract Runner interface designed for pluggability
 
 ## Integration Points
 
@@ -157,6 +161,19 @@ docs/            → PRDs, implementation plans, runbooks
 **Kubernetes Client:**
 - Used by K8sJobExecutor in `agent-server/app/executors/k8s_job_executor.py`
 - Creates Jobs, polls status, fetches logs, cleans up
+
+**Runner (SQL Execution):**
+- **MVP**: Custom Docker runner (`runner/runner.py`)
+  - Simple Python script with DuckDB
+  - Reads RunnerRequest JSON from stdin
+  - Writes RunnerResponse JSON to stdout
+  - Containerized with security hardening
+- **Future**: MicroSandbox integration (Phase 4)
+  - Alternative runner implementation
+  - Abstract Runner interface for pluggability
+  - Configuration: `RUNNER_TYPE=docker|microsandbox`
+  - Ideal for Python execution mode
+  - See Decision 11 in DECISIONS.md
 
 ## Testing Strategy
 

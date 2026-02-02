@@ -1,0 +1,6 @@
+# CSV Analyst Chat - Runner Dependencies
+
+# Core SQL engine
+duckdb==0.10.0
+
+# No other dependencies needed - keep attack surface minimal

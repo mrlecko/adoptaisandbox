@@ -291,11 +291,13 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 - [ ] Acceptance testing
 
 **Stretch Goals** 🔮 Future
-- [ ] Restricted Python execution mode
+- [ ] MicroSandbox integration (alternative runner with mature sandboxing)
+- [ ] Restricted Python execution mode (ideal use case for MicroSandbox)
 - [ ] Chart visualization
 - [ ] Query caching
 - [ ] Multi-turn analysis sessions
 - [ ] More datasets
+- [ ] Abstract Runner interface for pluggable execution backends
 
 ## Contributing
 

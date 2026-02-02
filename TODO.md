@@ -433,9 +433,28 @@
 
 ## Phase 4: Stretch Goals (Optional)
 
-### P4.1 Restricted Python Execution (Section 2.2)
+### P4.1 MicroSandbox Integration (Alternative Runner)
+- [ ] Evaluate MicroSandbox licensing and deployment
+- [ ] Design abstract Runner interface
+  - [ ] `execute(request: RunnerRequest) -> RunnerResponse`
+  - [ ] Factory pattern for runner creation
+  - [ ] Configuration: `RUNNER_TYPE=docker|microsandbox`
+- [ ] Implement MicroSandboxRunner class
+  - [ ] Integration with MicroSandbox Python SDK
+  - [ ] Async execution support
+  - [ ] Same RunnerRequest/RunnerResponse protocol
+- [ ] Add `msb` server to deployment docs
+- [ ] Write integration tests for MicroSandbox mode
+- [ ] Document deployment and configuration
+- [ ] Update README with runner options
+
+**PRD Mapping**: Section 10, Decision 11
+**Benefits**: Mature sandboxing, multi-language support, useful for Python mode
+**Dependencies**: MicroSandbox server (`msb server start`)
+
+### P4.2 Restricted Python Execution (Section 2.2)
 - [ ] Design Python execution mode schema (PythonPlan JSON)
-- [ ] Implement Python sandbox runner
+- [ ] Implement Python sandbox runner (consider MicroSandbox for this)
   - [ ] Restricted imports (pandas, numpy, no network libs)
   - [ ] AST validation (no imports of blocked modules, no file I/O)
   - [ ] Execute in sandbox (same security context as SQL runner)
@@ -445,6 +464,7 @@
 - [ ] Document Python mode in README (disabled by default)
 
 **PRD Mapping:** Section 2.2, stretch goal
+**Note:** MicroSandbox is ideal for Python execution mode
 
 ### P4.2 Simple Chart Output (Section 2.2)
 - [ ] Add chart rendering to UI (bar/line charts)

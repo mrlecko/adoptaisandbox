@@ -259,15 +259,64 @@ CREATE TABLE run_capsules (
 
 None - all MVP decisions finalized.
 
+## Decision 11: Runner Implementation ✅
+
+**Options Considered**:
+- A) Custom Docker Runner (build ourselves)
+- B) MicroSandbox (mature third-party solution)
+- C) Both (pluggable architecture)
+
+**Decision**: **Option A - Custom Docker Runner for MVP, MicroSandbox later**
+
+**Rationale**:
+- **PRD Alignment**: PRD specifically describes Docker-based runner
+- **Simplicity**: Fewer moving parts, faster to MVP
+- **No External Dependencies**: Self-contained, easier deployment
+- **Full Control**: Complete control over security hardening
+- **K8s Path**: Direct translation to Kubernetes Jobs
+- **Known Technology**: Team already knows Docker SDK
+
+**MicroSandbox Evaluation**:
+- ✅ Pros: Mature, feature-rich, async API, multi-language support
+- ⚠️ Cons: External service dependency, additional infrastructure, learning curve
+- 🔮 Future: Excellent candidate for Phase 4 (stretch goals)
+
+**Implementation Plan**:
+1. **Phase 1 (MVP)**: Build custom Docker runner
+   - `runner/runner.py` - DuckDB + CSV loader
+   - `runner/Dockerfile` - Security hardened
+   - Simple stdin/stdout JSON protocol
+
+2. **Phase 4 (Post-MVP)**: Add MicroSandbox support
+   - Create `MicroSandboxRunner` class
+   - Implement abstract `Runner` interface
+   - Add configuration option: `RUNNER_TYPE=docker|microsandbox`
+   - Document deployment with `msb` server
+   - Useful for Python execution mode
+
+**Extensibility Design**:
+- Abstract `Runner` interface for pluggability
+- Factory pattern for runner creation
+- Configuration-driven runner selection
+
+**Status**: Docker Runner in development ✅
+
+**References**:
+- MicroSandbox: https://docs.microsandbox.dev/
+- PRD Section 10: Runner Spec
+
+---
+
 ## Post-MVP Considerations
 
-1. **Multi-dataset queries**: Allow JOINs across datasets
-2. **User uploads**: Support temporary CSV uploads
-3. **Query caching**: Cache identical queries per dataset version
-4. **Python mode**: Restricted Python execution
-5. **Charts**: Auto-generate visualizations
-6. **Auth**: Basic authentication and per-user history
-7. **PostgreSQL**: Migrate from SQLite for horizontal scaling
+1. **MicroSandbox Integration**: Alternative runner implementation (see Decision 11)
+2. **Multi-dataset queries**: Allow JOINs across datasets
+3. **User uploads**: Support temporary CSV uploads
+4. **Query caching**: Cache identical queries per dataset version
+5. **Python mode**: Restricted Python execution (MicroSandbox ideal for this)
+6. **Charts**: Auto-generate visualizations
+7. **Auth**: Basic authentication and per-user history
+8. **PostgreSQL**: Migrate from SQLite for horizontal scaling
 
 ---
 
