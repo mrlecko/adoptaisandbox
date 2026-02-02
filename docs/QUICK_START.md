@@ -41,10 +41,13 @@ This creates ~70K rows of sample data in `datasets/`.
 ### 3. Verify Setup
 
 ```bash
-# Run tests
+# Run QueryPlan unit tests
 pytest tests/unit/ -v
 
-# Should see: 66 passed
+# Run sandboxed runner integration tests (builds runner image)
+make test-runner
+
+# Should see unit tests + 7 runner integration tests pass
 ```
 
 ### 4. Try QueryPlan DSL
@@ -106,14 +109,14 @@ pytest tests/unit/ --cov=app.models --cov=app.validators
 
 ## Next Steps
 
-The project is currently at Phase 1.2 (QueryPlan DSL complete).
+The project has completed QueryPlan DSL + runner implementation.
 
 **Next components to build**:
-1. **Runner** - DuckDB execution in sandbox ← You are here
-2. **SQL Validator** - Validate raw SQL queries
-3. **Docker Executor** - Run queries in Docker containers
-4. **Agent Server** - LangChain agent with FastAPI
-5. **UI** - Chat interface
+1. **SQL Validator** - Validate raw SQL queries
+2. **Docker Executor** - Run queries in Docker containers
+3. **Agent Server APIs** - LangChain orchestration with FastAPI
+4. **UI** - Chat interface wiring
+5. **K8s Executor + Helm** - Prod-like runtime path
 
 See `TODO.md` for detailed task list.
 
@@ -121,10 +124,11 @@ See `TODO.md` for detailed task list.
 
 ```bash
 # Generate datasets
-make validate-datasets  # (once Makefile targets are implemented)
+make validate-datasets
 
 # Run tests
 make test-unit
+make test-runner
 
 # Run demo
 cd agent-server && python3 demo_query_plan.py
@@ -162,7 +166,7 @@ python3 scripts/generate_ecommerce_dataset.py
 
 ```
 adoptaisandbox/
-├── agent-server/          # Backend (FastAPI + LangChain)
+├── agent-server/          # Backend scaffold (QueryPlan DSL + compiler)
 │   ├── app/
 │   │   ├── models/        # QueryPlan DSL ✅
 │   │   └── validators/    # SQL compiler ✅
@@ -172,7 +176,7 @@ adoptaisandbox/
 │   ├── support/
 │   ├── sensors/
 │   └── registry.json
-├── runner/                # SQL executor (next)
+├── runner/                # SQL executor ✅
 ├── tests/                 # Test suite ✅
 │   └── unit/
 ├── docs/                  # Documentation ✅

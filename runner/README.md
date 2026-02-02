@@ -10,6 +10,8 @@ The runner is a minimal, hardened Python script that:
 3. Executes SQL query with timeout
 4. Returns `RunnerResponse` JSON to stdout
 
+Note: the runner executes SQL only. QueryPlan DSL creation/validation/compilation happens upstream in `agent-server`.
+
 ## Security
 
 The runner is designed to run in a highly restricted environment:
@@ -20,6 +22,8 @@ The runner is designed to run in a highly restricted environment:
 - `--pids-limit 64` (process limit)
 - `--memory 512m --cpus 0.5` (resource limits)
 - Non-root user (UID 1000)
+- CSV path validation (`/data` absolute paths only)
+- Table-name sanitization for loaded CSV files
 
 **Kubernetes:**
 - Same restrictions via Pod security context
@@ -72,12 +76,12 @@ docker build -t csv-analyst-runner:latest .
 
 # Test with sample input
 echo '{
-  "dataset_id": "test",
-  "files": [{"name": "test.csv", "path": "/tmp/test.csv"}],
-  "sql": "SELECT 1 as value",
+  "dataset_id": "support",
+  "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+  "sql": "SELECT COUNT(*) AS n FROM tickets",
   "timeout_seconds": 5,
   "max_rows": 10
-}' | docker run -i --rm csv-analyst-runner:latest
+}' | docker run -i --rm -v ../datasets:/data:ro csv-analyst-runner:latest
 
 # Test with security restrictions
 docker run -i --rm \
@@ -86,7 +90,15 @@ docker run -i --rm \
   --pids-limit 64 \
   --memory 512m \
   --cpus 0.5 \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v ../datasets:/data:ro \
   csv-analyst-runner:latest < request.json
+```
+
+From repository root you can run the full runner integration suite:
+
+```bash
+make test-runner
 ```
 
 ## Dependencies

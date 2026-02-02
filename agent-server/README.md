@@ -181,14 +181,13 @@ agent-server/
 
 ## Next Steps
 
-With QueryPlan DSL complete, next steps are:
+With QueryPlan DSL complete and runner implemented, next steps are:
 
 1. **SQL Validator** - Validate raw SQL queries (denylist)
-2. **Runner** - DuckDB execution in sandbox
-3. **Executors** - DockerExecutor and K8sJobExecutor
-4. **Agent** - LangChain agent with tools
-5. **API** - FastAPI endpoints
-6. **Capsule Storage** - SQLite persistence
+2. **Executors** - DockerExecutor and K8sJobExecutor
+3. **Agent** - LangChain agent with tools
+4. **API** - FastAPI endpoints
+5. **Capsule Storage** - SQLite persistence
 
 See `TODO.md` (Phase 1.2+) for detailed breakdown.
 
@@ -200,10 +199,10 @@ See `TODO.md` (Phase 1.2+) for detailed breakdown.
 - Security (escaping, injection prevention)
 - Determinism (same plan = same SQL)
 
-**Integration Tests** (🔜 Next):
-- End-to-end: QueryPlan → SQL → DuckDB → Results
-- Golden queries from use case specs
-- Real dataset testing
+**Integration Tests**:
+- ✅ Runner container tests (`make test-runner`)
+- 🔜 End-to-end: QueryPlan → executor → runner → Results
+- 🔜 Golden queries from use case specs
 
 **Security Tests** (🔜 Next):
 - SQL injection attempts

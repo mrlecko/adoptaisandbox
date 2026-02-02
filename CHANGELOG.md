@@ -41,10 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Demo script with 7 usage examples
 - Full documentation (agent-server/README.md, QUERYPLAN_DSL_SPEC.md)
 
+**Runner (Phase 1.4)**:
+- Sandboxed DuckDB runner implementation (`runner/runner.py`)
+- Hardened runner Docker image (`runner/Dockerfile`)
+- Runner container integration tests (7 tests)
+- Make targets for runner validation: `build-runner-test`, `test-runner`
+
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
 - Updated README.md with current project status
 - Updated TODO.md with completed tasks (Phase 0.1, 1.1, 1.2)
+- Updated runner timeout classification to return `RUNNER_TIMEOUT` consistently
+- Updated support/sensors dataset generation for data validity edge cases
+- Updated implementation/status docs with runner usage and test workflow
 
 ### Deprecated
 - N/A
@@ -53,12 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - N/A
 
 ### Fixed
-- N/A
+- Support tickets edge cases where `resolved_at < created_at`
+- Sensors edge cases with out-of-range humidity values
 
 ### Security
 - SQL injection prevention in QueryPlan compiler
 - Data exfiltration detection heuristic
 - Dataset version hashing for integrity
+- Runner CSV path confinement to `/data` and strict table-name sanitization
 
 ---
 

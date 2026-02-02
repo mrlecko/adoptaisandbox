@@ -12,6 +12,29 @@ This document outlines a pragmatic, low-risk, incremental approach to building t
 
 ---
 
+## Progress Update (2026-02-02)
+
+Implemented:
+- Dataset generation + registry (`datasets/registry.json`)
+- QueryPlan DSL + deterministic SQL compiler
+- Sandboxed runner (`runner/runner.py`, `runner/Dockerfile`)
+- Runner hardening for CSV table/path handling
+- Runner integration tests (`tests/integration/test_runner_container.py`)
+
+Architecture note:
+- QueryPlan DSL is handled upstream in agent-server; runner receives validated SQL + dataset file references only.
+
+Runner usage today:
+- `make build-runner-test` to build the test image
+- `make test-runner` to run containerized runner integration tests
+
+Not yet implemented:
+- Agent-server executors and API orchestration
+- UI integration and end-to-end chat flow
+- Helm/Kubernetes runtime path
+
+---
+
 ## Critical Path Analysis
 
 ### Minimum Viable Path (Days 1-3)
@@ -121,10 +144,10 @@ graph LR
 5. Write integration tests for runner
 
 **Success criteria:**
-- [ ] Can build runner image
-- [ ] Can execute SQL queries in runner and get results back
-- [ ] Runner respects timeout, memory, CPU limits
-- [ ] Runner has no network access
+- [x] Can build runner image
+- [x] Can execute SQL queries in runner and get results back
+- [x] Runner respects timeout, memory, CPU limits
+- [x] Runner has no network access
 - [ ] DockerExecutor can submit runs and retrieve results
 
 **Risk mitigation:**
@@ -133,10 +156,11 @@ graph LR
 - Test container cleanup (don't leak containers)
 
 **Testing strategy:**
-- Integration test: submit SQL → get result
-- Integration test: timeout enforcement
-- Integration test: invalid SQL → error handling
-- Security test: verify no network access
+- [x] Integration test: submit SQL → get result
+- [x] Integration test: timeout enforcement
+- [x] Integration test: invalid input/path handling → error handling
+- [x] Security test: verify path/table-name hardening
+- [ ] Security test: explicit runtime network egress check from inside runner
 
 ---
 

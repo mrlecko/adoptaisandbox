@@ -10,13 +10,26 @@ CSV Analyst Chat enables natural language querying of CSV datasets through an in
 - Executes queries in isolated sandboxed environments (Docker or Kubernetes)
 - Returns results with full execution transparency and audit trails
 
+## Current Implementation Status (2026-02-02)
+
+Implemented now:
+- ✅ Dataset generation + registry (`datasets/` + `datasets/registry.json`)
+- ✅ QueryPlan DSL + deterministic compiler (`agent-server/app/models/query_plan.py`, `agent-server/app/validators/compiler.py`)
+- ✅ Sandboxed DuckDB runner (`runner/runner.py`, `runner/Dockerfile`)
+- ✅ Runner integration tests (`tests/integration/test_runner_container.py`)
+
+Still in progress:
+- 🚧 SQL policy validator for raw SQL
+- 🚧 Docker/K8s executors in agent-server
+- 🚧 FastAPI agent endpoints, run capsule persistence, and UI integration
+
 **Key Features:**
 - 🤖 LangChain-powered conversational agent
 - 🔒 Sandboxed execution with strict security controls
 - 📊 Multiple curated datasets with example prompts
 - 🎯 Structured query planning with deterministic SQL compilation
 - 🔍 Full execution transparency (query plans, SQL, logs, metadata)
-- ☸️ Kubernetes-ready with Helm charts for production deployment
+- ☸️ Kubernetes deployment path planned (Helm + Job-based runner)
 
 ## Architecture
 
@@ -46,53 +59,31 @@ CSV Analyst Chat enables natural language querying of CSV datasets through an in
 **Components:**
 - **UI**: Chat interface (LangChain Agent UI starter)
 - **Agent Server**: FastAPI backend with LangChain agent
-- **Runner**: Isolated SQL execution environment (DuckDB in Docker/K8s)
+- **Runner**: Isolated SQL execution environment (DuckDB in Docker/K8s); executes SQL only (no QueryPlan DSL parsing)
 - **Datasets**: Versioned CSV datasets with metadata
 
-## Quick Start (Local Development)
+## Quick Start (Current, Runnable Scope)
 
 ### Prerequisites
 - Docker and Docker Compose
 - Python 3.11+
-- Node.js 18+ (for UI)
+- Node.js 18+ (needed when UI integration is enabled)
 - Make
 
-### Run Locally
+### Validate QueryPlan + Runner
 
 ```bash
-# Start all services
-make dev
+# Run QueryPlan unit tests
+make test-unit
 
-# Access the UI
-open http://localhost:3000
+# Build runner image + execute containerized integration tests
+make test-runner
+
+# Optional: inspect QueryPlan DSL demos
+cd agent-server && python3 demo_query_plan.py
 ```
 
-Try these example prompts:
-- "Show me top 10 orders by total amount"
-- "What's the average CSAT score by ticket priority?"
-- "Which sensors had anomalies in the last 24 hours?"
-
-### Development Setup
-
-```bash
-# Install Python dependencies (agent server)
-cd agent-server
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Install UI dependencies
-cd ui
-npm install
-
-# Run tests
-make test
-
-# Run security tests
-make test-security
-```
-
-## Quick Start (Kubernetes)
+## Kubernetes Path (Planned)
 
 ### Prerequisites
 - kubectl
@@ -108,7 +99,7 @@ make k8s-up
 # Install via Helm
 make helm-install
 
-# Test deployment
+# Test deployment (pending implementation)
 make k8s-smoke
 
 # Access the application
@@ -119,13 +110,10 @@ kubectl port-forward svc/csv-analyst-ui 3000:80
 
 ```
 .
-├── agent-server/       # FastAPI backend + LangChain agent
+├── agent-server/       # QueryPlan DSL + compiler (FastAPI agent pending)
 │   ├── app/
-│   │   ├── agent/      # Agent graph and tools
-│   │   ├── executors/  # Docker/K8s execution backends
-│   │   ├── models/     # Pydantic models (QueryPlan, etc.)
-│   │   └── validators/ # SQL and plan validation
-│   ├── Dockerfile
+│   │   ├── models/     # Pydantic models (QueryPlan DSL)
+│   │   └── validators/ # QueryPlan -> SQL compiler
 │   └── requirements.txt
 ├── datasets/           # CSV datasets and metadata
 │   ├── registry.json   # Dataset catalog
@@ -135,9 +123,8 @@ kubectl port-forward svc/csv-analyst-ui 3000:80
 ├── runner/             # Sandboxed SQL execution
 │   ├── runner.py
 │   └── Dockerfile
-├── ui/                 # Frontend (LangChain Agent UI)
-├── helm/               # Kubernetes Helm charts
-│   └── csv-analyst-chat/
+├── ui/                 # Frontend scaffold (pending)
+├── helm/               # Helm chart scaffold (pending)
 ├── tests/              # Test suite
 │   ├── unit/
 │   ├── integration/
@@ -163,6 +150,7 @@ CSV Analyst Chat implements defense-in-depth security:
    - Resource limits (CPU, memory, PIDs)
    - Non-root user execution
    - Temporary filesystem restrictions
+   - CSV load hardening (`/data`-scoped absolute paths + safe table-name validation)
 
 3. **Kubernetes Security**
    - Pod Security Standards
@@ -216,6 +204,9 @@ make test-unit
 # Integration tests
 make test-integration
 
+# Runner container integration tests
+make test-runner
+
 # Security tests (red team)
 make test-security
 
@@ -233,11 +224,7 @@ GitHub Actions automatically:
 
 ## Deployment
 
-See [docs/hosting.md](docs/hosting.md) for detailed deployment guides:
-- Local development (Docker Compose)
-- Local Kubernetes (kind/k3d)
-- Cloud Kubernetes (GKE, EKS, AKS)
-- Bare metal k3s
+Deployment runbooks are still in progress. Current validated path is container-level runner testing via `make test-runner`.
 
 ## Troubleshooting
 
@@ -255,8 +242,6 @@ See [docs/hosting.md](docs/hosting.md) for detailed deployment guides:
    - Verify `datasets/registry.json` syntax
    - Check file paths are correct
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
-
 ## Roadmap
 
 **Phase 0: Bootstrap & Planning** ✅ Complete
@@ -268,8 +253,9 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 **Phase 1: Foundations** 🚧 In Progress
 - [x] Dataset generation & registry (FR-D1, FR-D2, FR-D3)
 - [x] Query plan JSON DSL (FR-Q1, FR-Q2, FR-Q3)
+- [x] Runner (SQL mode) (FR-X1-X4)
+- [x] Runner integration tests (`make test-runner`)
 - [ ] SQL validation (FR-SQL1, FR-SQL2, FR-SQL3)
-- [ ] Runner (SQL mode) (FR-X1-X4) ← **NEXT**
 - [ ] Docker executor (local mode)
 - [ ] Agent server core
 - [ ] Run capsule storage

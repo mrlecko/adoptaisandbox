@@ -200,6 +200,7 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
+    "docs/PROJECT_STATUS.md",
     "tests/integration/__pycache__/test_runner_container.cpython-310-pytest-8.4.2.pyc",
     "tests/integration/__pycache__",
     "tests/integration/test_runner_container.py",
@@ -211,9 +212,7 @@
     "runner/requirements.txt.tmp.24216.1770069248884",
     "docs/FUTURE_ENHANCEMENTS.md",
     "docs/FUTURE_ENHANCEMENTS.md.tmp.24216.1770069239354",
-    "README.md.tmp.24216.1770069207406",
     "docs/QUICK_START.md",
-    "docs/PROJECT_STATUS.md",
     "docs/QUERYPLAN_DSL_SPEC.md",
     "datasets/GENERATION_REPORT.md",
     "docs/DECISIONS.md",
