@@ -25,9 +25,9 @@
               "state": {
                 "file": "project.canvas",
                 "viewState": {
-                  "x": 15.888940969837265,
-                  "y": 17.230475324955528,
-                  "zoom": -0.8
+                  "x": 227.25785108899302,
+                  "y": -484.5048731711737,
+                  "zoom": 0.4
                 }
               },
               "icon": "lucide-layout-dashboard",
@@ -200,6 +200,9 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
+    "tests/integration/__pycache__/test_runner_container.cpython-310-pytest-8.4.2.pyc",
+    "tests/integration/__pycache__",
+    "tests/integration/test_runner_container.py",
     "runner/Dockerfile",
     "runner/Dockerfile.tmp.24216.1770069281556",
     "runner/runner.py",
@@ -209,9 +212,6 @@
     "docs/FUTURE_ENHANCEMENTS.md",
     "docs/FUTURE_ENHANCEMENTS.md.tmp.24216.1770069239354",
     "README.md.tmp.24216.1770069207406",
-    "CLAUDE.md.tmp.24216.1770069203941",
-    "CLAUDE.md.tmp.24216.1770069196726",
-    "TODO.md.tmp.24216.1770069190095",
     "docs/QUICK_START.md",
     "docs/PROJECT_STATUS.md",
     "docs/QUERYPLAN_DSL_SPEC.md",

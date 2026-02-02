@@ -130,16 +130,27 @@ def generate_tickets() -> List[Dict]:
 
         if status in ["Resolved", "Closed"]:
             resolution_time_hours = generate_resolution_time(priority, sla_met)
-            resolved_at = created_at + timedelta(hours=resolution_time_hours)
+            max_resolution_hours = (end_date - created_at).total_seconds() / 3600
 
-            # Ensure resolved_at is not in the future
-            if resolved_at > end_date:
-                resolved_at = end_date - timedelta(hours=random.uniform(0.5, 24))
-                resolution_time_hours = (resolved_at - created_at).total_seconds() / 3600
+            if max_resolution_hours <= 0:
+                # Ticket can't be resolved in the available time window.
+                status = "Open"
+                sla_met = False
+                resolution_time_hours = None
+                resolved_at = None
+            else:
+                if resolution_time_hours > max_resolution_hours:
+                    # Keep resolution strictly after creation and before "now".
+                    resolution_time_hours = max(
+                        0.01,
+                        random.uniform(0.01, max_resolution_hours)
+                    )
 
-            # Adjust sla_met based on actual resolution time
-            sla_hours = PRIORITIES[priority]["sla_hours"]
-            sla_met = resolution_time_hours <= sla_hours
+                resolved_at = created_at + timedelta(hours=resolution_time_hours)
+
+                # Adjust sla_met based on actual resolution time.
+                sla_hours = PRIORITIES[priority]["sla_hours"]
+                sla_met = resolution_time_hours <= sla_hours
         else:
             sla_met = False  # Open tickets don't have SLA status yet
 

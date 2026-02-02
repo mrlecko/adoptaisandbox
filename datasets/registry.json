@@ -150,7 +150,7 @@
       "name": "Support Tickets",
       "description": "Customer support ticket lifecycle and satisfaction data. Supports analysis of SLA compliance, resolution times, customer satisfaction, and support team performance.",
       "domain": "Customer Support",
-      "version_hash": "sha256:76d7954c42615e95542d306d573e722fa98a67a2003ae665665e5a0e9575c6e4",
+      "version_hash": "sha256:d075a48d52219b3c4177b859a3c862afb401be94e92aa4e506b6c3d33b181f40",
       "row_count": 6417,
       "size_bytes": 548864,
       "files": [
@@ -254,7 +254,7 @@
       "name": "IoT Sensor Network",
       "description": "Environmental monitoring sensor readings with anomaly detection. Supports analysis of sensor health, environmental conditions, anomaly patterns, and predictive maintenance.",
       "domain": "IoT/Industrial Monitoring",
-      "version_hash": "sha256:d18bc06193f8fc7b6d06dd47c23f52a3acd45e28b847db9e1a613ec2b514ae44",
+      "version_hash": "sha256:183be98d6b89af25333166368283641a416ce6c191d5b0df51994aa014ac7821",
       "row_count": 49950,
       "size_bytes": 4296704,
       "files": [

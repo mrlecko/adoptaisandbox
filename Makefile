@@ -1,7 +1,7 @@
 # CSV Analyst Chat - Makefile
 # Common development tasks
 
-.PHONY: help dev test clean install
+.PHONY: help dev test clean install build-runner-test test-runner
 
 # Default target
 .DEFAULT_GOAL := help
@@ -37,6 +37,10 @@ test: ## Run all tests
 	@echo "Running all tests..."
 	pytest tests/ -v
 	@echo "✓ All tests passed"
+
+test-runner: build-runner-test ## Run runner integration tests (requires Docker)
+	@echo "Running runner integration tests..."
+	RUNNER_TEST_IMAGE=csv-analyst-runner:test pytest tests/integration/test_runner_container.py -v
 
 test-unit: ## Run unit tests only
 	@echo "Running unit tests..."
@@ -96,6 +100,9 @@ k8s-smoke: ## Run smoke tests against K8s deployment
 
 build-runner: ## Build runner Docker image
 	docker build -t csv-analyst-runner:latest ./runner
+
+build-runner-test: ## Build runner Docker image for integration tests
+	docker build -t csv-analyst-runner:test ./runner
 
 build-agent: ## Build agent-server Docker image
 	docker build -t csv-analyst-agent:latest ./agent-server

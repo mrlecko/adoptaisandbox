@@ -17,6 +17,7 @@ import sys
 import json
 import signal
 import time
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -38,9 +39,42 @@ class TimeoutError(Exception):
     pass
 
 
-def timeout_handler(signum, frame):
-    """Signal handler for timeout."""
-    raise TimeoutError("Query execution timed out")
+TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DATA_ROOT = Path("/data")
+
+
+def sanitize_table_name(filename: str) -> str:
+    """Return a safe SQL table name derived from CSV filename."""
+    table_name = Path(filename).stem
+    if not TABLE_NAME_PATTERN.fullmatch(table_name):
+        raise ValueError(f"Invalid table name derived from filename: {filename}")
+    return table_name
+
+
+def sanitize_data_path(path_value: str) -> str:
+    """Ensure CSV path is absolute, under /data, and points to a file."""
+    candidate = Path(path_value)
+    if not candidate.is_absolute():
+        raise ValueError(f"CSV path must be absolute: {path_value}")
+
+    resolved = candidate.resolve()
+    data_root = DATA_ROOT.resolve()
+    if resolved != data_root and data_root not in resolved.parents:
+        raise ValueError(f"CSV path must be under {data_root}: {path_value}")
+    if not resolved.is_file():
+        raise ValueError(f"CSV file not found: {path_value}")
+
+    return str(resolved)
+
+
+def is_timeout_exception(exc: Exception, timed_out: bool, timeout_seconds: int, start_time: float) -> bool:
+    """Best-effort timeout classification for interrupted DuckDB queries."""
+    if timed_out:
+        return True
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    msg = str(exc).lower()
+    return "interrupt" in msg and elapsed_ms >= int(timeout_seconds * 900)
 
 
 class RunnerRequest:
@@ -128,6 +162,8 @@ def load_csvs_into_duckdb(conn: duckdb.DuckDBPyConnection, files: List[Dict]) ->
         conn: DuckDB connection
         files: List of {name, path} dicts
     """
+    loaded_tables = set()
+
     for file_info in files:
         name = file_info.get("name", "")
         path = file_info.get("path", "")
@@ -135,15 +171,17 @@ def load_csvs_into_duckdb(conn: duckdb.DuckDBPyConnection, files: List[Dict]) ->
         if not name or not path:
             raise ValueError(f"Invalid file info: {file_info}")
 
-        # Extract table name from filename (remove .csv extension)
-        table_name = Path(name).stem
+        table_name = sanitize_table_name(name)
+        csv_path = sanitize_data_path(path)
+        if table_name in loaded_tables:
+            raise ValueError(f"Duplicate table name from files list: {table_name}")
 
-        # DuckDB can read CSV directly
-        # Use read_csv_auto for automatic schema detection
-        conn.execute(f"""
-            CREATE TABLE "{table_name}" AS
-            SELECT * FROM read_csv_auto('{path}')
-        """)
+        # Keep the file path as a bound parameter to avoid SQL injection risk.
+        conn.execute(
+            f'CREATE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?)',
+            [csv_path],
+        )
+        loaded_tables.add(table_name)
 
 
 def execute_query(request: RunnerRequest) -> RunnerResponse:
@@ -158,8 +196,15 @@ def execute_query(request: RunnerRequest) -> RunnerResponse:
     """
     response = RunnerResponse()
     start_time = time.time()
+    timed_out = False
 
     try:
+        def timeout_handler(signum, frame):
+            """Signal handler for timeout."""
+            nonlocal timed_out
+            timed_out = True
+            raise TimeoutError("Query execution timed out")
+
         # Set up timeout signal
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(request.timeout_seconds)
@@ -198,18 +243,32 @@ def execute_query(request: RunnerRequest) -> RunnerResponse:
         }
 
     except duckdb.Error as e:
-        response.status = "error"
-        response.error = {
-            "type": "SQL_EXECUTION_ERROR",
-            "message": str(e)
-        }
+        if is_timeout_exception(e, timed_out, request.timeout_seconds, start_time):
+            response.status = "timeout"
+            response.error = {
+                "type": "RUNNER_TIMEOUT",
+                "message": f"Query exceeded timeout of {request.timeout_seconds} seconds"
+            }
+        else:
+            response.status = "error"
+            response.error = {
+                "type": "SQL_EXECUTION_ERROR",
+                "message": str(e)
+            }
 
     except Exception as e:
-        response.status = "error"
-        response.error = {
-            "type": "RUNNER_INTERNAL_ERROR",
-            "message": str(e)
-        }
+        if is_timeout_exception(e, timed_out, request.timeout_seconds, start_time):
+            response.status = "timeout"
+            response.error = {
+                "type": "RUNNER_TIMEOUT",
+                "message": f"Query exceeded timeout of {request.timeout_seconds} seconds"
+            }
+        else:
+            response.status = "error"
+            response.error = {
+                "type": "RUNNER_INTERNAL_ERROR",
+                "message": str(e)
+            }
 
     finally:
         # Calculate execution time

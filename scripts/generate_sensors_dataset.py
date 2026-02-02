@@ -200,6 +200,10 @@ def generate_readings(sensors: List[str]) -> List[Dict]:
                     anomaly_flag = True
                     anomaly_type = random.choice(["high_temp", "vibration_alarm"])
 
+            # Keep generated values in physically valid bounds.
+            temp = max(-20.0, min(50.0, temp))
+            humidity = max(0.0, min(100.0, humidity))
+
             readings.append({
                 "sensor_id": sensor,
                 "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
