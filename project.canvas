@@ -1,20 +1,36 @@
 {
 	"nodes":[
-		{"id":"6ae3b882b0063cd5","x":-140,"y":-620,"width":280,"height":310,"type":"text","text":"# Agent Server \n\nlangchain / fastAPI"},
-		{"id":"861eed02286a3597","type":"text","text":"# Execution Sandbox\n\nexample  given: https://e2b.dev\n","x":-140,"y":-180,"width":280,"height":320},
-		{"id":"12a833bce8320f97","x":-720,"y":-1560,"width":936,"height":280,"type":"text","text":"# Infra\n\ndocker / k8s / helm"},
-		{"id":"203592fa709f219e","x":-755,"y":-620,"width":310,"height":310,"type":"text","text":"# Web UI\n\n#### langchain web agent chat  UI\n\nhttps://docs.langchain.com/oss/python/langchain/ui"},
-		{"id":"e35d3eaa301e35c6","type":"text","text":"# Data Generation & Querying\n\n3 Use Cases\n\nFor each\n- [ ] Dataset Generator\n- [ ] Dataset Validator\n- [ ] Golden Paths / Queries","x":420,"y":-180,"width":280,"height":320},
-		{"id":"b21e6bb3175691d2","x":-720,"y":412,"width":654,"height":608,"type":"text","text":"# Docker Runner Image\n\npython:3.13-slim\nmountpoint `/work`\n\n```dockerfile\nFROM python:3.11-slim\n\n# system deps (node/bash/jq so all witness languages work)\nRUN apt-get update && apt-get install -y --no-install-recommends \\\n    nodejs curl bash jq ca-certificates \\\n  && rm -rf /var/lib/apt/lists/*\n\n# working dir (we will mount the project at /work)\nWORKDIR /work\n\n# preinstall Python deps from your requirements\nCOPY requirements.txt /tmp/requirements.txt\nRUN pip install -U pip && pip install -r /tmp/requirements.txt\n\n# default entry; we'll pass the script path and flags at run-time\nENTRYPOINT [\"python3\"]\n```"},
-		{"id":"2f69f79cbbf0c1b1","x":60,"y":412,"width":640,"height":208,"type":"text","text":"# MicroSandbox (Post MVP Stretch Goal)\n\nhttps://github.com/zerocore-ai/microsandbox"},
-		{"id":"d034bbf328a1a726","x":-755,"y":-1000,"width":720,"height":240,"type":"text","text":"# Use Cases\n\n- Ecommerce Dataset\n- Support Ticket Dataset\n- IoT Sensors Dataset\n"},
-		{"id":"c83c7685677439a4","type":"text","text":"# Progress\n\n- [x] Create (3) CSV dataset generators\n- [ ] Create basic execution runner (v1 docker, v2 microsandbox)\n- [ ] Create langchain agent + tools\n- [ ] Create langchain web UI\n- [ ] Create remote deployment ","x":20,"y":-1000,"width":720,"height":240}
+		{"id":"n_deploy","type":"text","text":"# Deployment Topologies\n\nLocal (default): FastAPI + Docker sandbox runner\n\nKubernetes: Helm chart (`helm/csv-analyst-chat`) + K8s Job executor\n\nAlternative profile: MicroSandbox executor context\n\nRunbooks:\n- `DEPLOYMENT.md`\n- `docs/runbooks/K8S_HELM_DOCKER_RUNBOOK.md`\n- `docs/runbooks/K8S_HELM_PROFILE_CONTEXTS.md`","x":-1600,"y":-3480,"width":1220,"height":320},
+		{"id":"n_api","type":"text","text":"# API Surface (`app/main.py`)\n\n- `/chat`, `/chat/stream`\n- `/runs`, `/runs/{id}`, `/runs/{id}/status`\n- `/datasets`, `/datasets/{id}/schema`\n- `/threads/{thread_id}/messages`\n- `/healthz`, `/metrics`","x":-1480,"y":-2800,"width":380,"height":360},
+		{"id":"n_agent","type":"text","text":"# Agent Core (`app/agent.py`)\n\nLangChain/LangGraph tool-calling loop.\n\nResponsibilities:\n- conversational turns\n- follow-up context from prior runs\n- capsule extraction from tool messages\n- recursion safety handling","x":-640,"y":-1930,"width":360,"height":320},
+		{"id":"n_runner","type":"text","text":"# Runner Image (`runner/`)\n\nSame image, two entrypoints:\n- SQL: `runner.py`\n- Python: `runner_python.py`\n\nCommon behavior:\n- CSV load into DuckDB/DataFrames\n- bounded output (`max_rows`, `max_output_bytes`)\n- timeout/resource-aware execution","x":1840,"y":-1170,"width":420,"height":360},
+		{"id":"n_exec_factory","type":"text","text":"# Sandbox Executor Abstraction\n\nFactory selects provider via `SANDBOX_PROVIDER`:\n- `docker`\n- `k8s`\n- `microsandbox`\n\nImplemented in `app/executors/*`.","x":900,"y":-2720,"width":380,"height":340},
+		{"id":"n_tools","type":"text","text":"# Tool Layer (`app/tools.py`)\n\nKey tools:\n- list datasets / schema lookup\n- execute SQL\n- execute QueryPlan\n- execute Python\n- run status retrieval\n\nExecution tools are the only path to sandbox compute.","x":240,"y":-2750,"width":360,"height":340},
+		{"id":"n_validation","type":"text","text":"# Validation + Compilation\n\n- QueryPlan DSL: `demo_query_plan.py`\n- Compiler: `validators/compiler.py`\n- SQL policy + normalization: `validators/sql_policy.py`\n\nGuards against unsafe SQL and malformed plans.","x":240,"y":-2070,"width":360,"height":300},
+		{"id":"n_observability","type":"text","text":"# Observability\n\n- structured request logs + `x-request-id`\n- Prometheus metrics: `/metrics`\n- optional MLflow tracing (gated by `MLFLOW_ENABLED`)\n\nFail-safe: tracing disabled should not block startup.","x":-570,"y":-2770,"width":380,"height":300},
+		{"id":"n_storage","type":"text","text":"# Persistence (`app/storage/`)\n\nDefault provider: SQLite.\n\nStores:\n- run capsules\n- message history by thread\n\nDesigned with provider abstraction for future backends.","x":-1480,"y":-1470,"width":380,"height":300},
+		{"id":"n_ui","type":"text","text":"# UI Layer (`GET /`)\n\nStatic UI served by FastAPI.\n\nFeatures:\n- Chat transcript (stateful)\n- Dataset selector\n- Result panel\n- SSE chat support (`/chat/stream`)","x":-2890,"y":-2800,"width":480,"height":280},
+		{"id":"n_mission","type":"text","text":"# Solution Goal\n\nNatural-language analytics over fixed CSV datasets with secure execution.\n\nCore promise:\n- Agent plans\n- Sandbox executes\n- Results are grounded and auditable","x":-2890,"y":-3760,"width":480,"height":300},
+		{"id":"n_use_cases","type":"text","text":"# Built-in Use Cases\n\n- Ecommerce (`orders`, `order_items`, `inventory`)\n- Support (`tickets`)\n- Sensors (`sensors`)\n\nBacked by `datasets/registry.json` + deterministic CSVs","x":-2890,"y":-3280,"width":480,"height":260},
+		{"id":"n_make","type":"text","text":"# Make Utility Groups\n\nBootstrapping:\n- `make agent-venv`\n- `make build-runner-test`\n- `make run-agent-dev`\n\nTesting:\n- `make test-agent-server`\n- `make test-runner`\n- `make test-security`\n\nK8s:\n- `make k8s-deploy-k8s-job`\n- `make k8s-smoke`\n- `make k8s-test-runs`","x":-2650,"y":-40,"width":620,"height":360},
+		{"id":"n_tests","type":"text","text":"# Test System\n\n- Unit: `tests/unit/`\n- Integration: `tests/integration/`\n- Security: `tests/security/`\n\nRegression priority:\n1) agent-server integration\n2) runner/executor integration\n3) security policy fixtures","x":0,"y":-1170,"width":420,"height":300}
 	],
 	"edges":[
-		{"id":"2fdba4fc3db41d3f","fromNode":"861eed02286a3597","fromSide":"bottom","toNode":"b21e6bb3175691d2","toSide":"top","label":"Option A"},
-		{"id":"ca1401fd4692d5d7","fromNode":"861eed02286a3597","fromSide":"bottom","toNode":"2f69f79cbbf0c1b1","toSide":"top","label":"Option B"},
-		{"id":"449f80ad70cf4f51","fromNode":"6ae3b882b0063cd5","fromSide":"bottom","toNode":"861eed02286a3597","toSide":"top","fromEnd":"arrow","label":"invokes via HTTP"},
-		{"id":"f548b1c9a1bb3ef5","fromNode":"861eed02286a3597","fromSide":"right","toNode":"e35d3eaa301e35c6","toSide":"left","label":"uses"},
-		{"id":"5a6bed47f9621aef","fromNode":"203592fa709f219e","fromSide":"right","toNode":"6ae3b882b0063cd5","toSide":"left","fromEnd":"arrow","label":"https\nstream IO"}
+		{"id":"e_goal_to_use_cases","fromNode":"n_mission","fromSide":"bottom","toNode":"n_use_cases","toSide":"top","label":"validated by"},
+		{"id":"e_use_cases_to_ui","fromNode":"n_use_cases","fromSide":"bottom","toNode":"n_ui","toSide":"top","label":"presented through"},
+		{"id":"e_ui_to_api","fromNode":"n_ui","fromSide":"right","toNode":"n_api","toSide":"left","fromEnd":"arrow","label":"HTTP/SSE"},
+		{"id":"e_api_to_agent","fromNode":"n_api","fromSide":"right","toNode":"n_agent","toSide":"left","fromEnd":"arrow","label":"invokes"},
+		{"id":"e_agent_to_tools","fromNode":"n_agent","fromSide":"right","toNode":"n_tools","toSide":"left","fromEnd":"arrow","label":"tool calls"},
+		{"id":"e_tools_to_validation","fromNode":"n_tools","fromSide":"bottom","toNode":"n_validation","toSide":"top","label":"compile + policy check"},
+		{"id":"e_tools_to_exec","fromNode":"n_tools","fromSide":"right","toNode":"n_exec_factory","toSide":"left","fromEnd":"arrow","label":"submit run"},
+		{"id":"e_exec_to_runner","fromNode":"n_exec_factory","fromSide":"right","toNode":"n_runner","toSide":"left","fromEnd":"arrow","label":"sandbox execution"},
+		{"id":"e_api_to_storage","fromNode":"n_api","fromSide":"bottom","toNode":"n_storage","toSide":"top","label":"persist/retrieve"},
+		{"id":"e_api_to_observability","fromNode":"n_api","fromSide":"right","toNode":"n_observability","toSide":"left","label":"logs/metrics/traces"},
+		{"id":"e_deploy_to_api","fromNode":"n_deploy","fromSide":"bottom","toNode":"n_api","toSide":"top","label":"runtime context"},
+		{"id":"e_deploy_to_exec","fromNode":"n_deploy","fromSide":"bottom","toNode":"n_exec_factory","toSide":"top","label":"provider selection"},
+		{"id":"e_make_to_api","fromNode":"n_make","fromSide":"right","toNode":"n_api","toSide":"left","label":"build/run"},
+		{"id":"e_make_to_runner","fromNode":"n_make","fromSide":"right","toNode":"n_runner","toSide":"left","label":"build/test image"},
+		{"id":"e_tests_to_agent","fromNode":"n_tests","fromSide":"left","toNode":"n_agent","toSide":"right","label":"behavior coverage"},
+		{"id":"e_tests_to_runner","fromNode":"n_tests","fromSide":"left","toNode":"n_runner","toSide":"left","label":"sandbox coverage"}
 	]
 }
