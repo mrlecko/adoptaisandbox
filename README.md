@@ -1,6 +1,6 @@
 # CSV Analyst Chat
 
-LLM-assisted CSV analysis with sandboxed SQL execution.
+LLM-assisted CSV analysis with sandboxed SQL/Python execution.
 
 ## Current Status (2026-02-03)
 
@@ -8,7 +8,7 @@ Implemented now:
 - ✅ Dataset generation + registry (`datasets/registry.json`)
 - ✅ QueryPlan DSL + deterministic compiler (`agent-server/demo_query_plan.py` flow)
 - ✅ Hardened runner container for SQL + restricted Python execution (`runner/runner.py`, `runner/runner_python.py`)
-- ✅ Single-file FastAPI agent server (`agent-server/app/main.py`)
+- ✅ FastAPI agent server with LangChain/LangGraph tool-calling agent flow (`agent-server/app/main.py`, `agent-server/app/agent.py`, `agent-server/app/tools.py`)
 - ✅ Minimal static UI served by the same FastAPI app (`GET /`)
 - ✅ Streaming chat endpoint (`POST /chat/stream`) and run capsule persistence (`SQLite`)
 - ✅ Integration tests for runner + single-file server
@@ -18,14 +18,13 @@ Implemented now:
 - ✅ Python sandbox execution mode in same runner image via separate entrypoint (`runner/runner_python.py`)
 
 In progress:
-- 🚧 Stronger SQL policy coverage and red-team scenarios
-- 🚧 Richer LLM planning behavior and recovery loops
-- 🚧 K8s/Helm production path
+- 🚧 Kubernetes Job execution + Helm production deployment path
+- 🚧 Final security hardening/documentation for production profile
 
 ## Architecture (Current)
 
 1. UI (static page from FastAPI) calls `/chat` or `/chat/stream`.
-2. Agent server generates/accepts query intent (plan or SQL).
+2. LangChain/LangGraph agent decides tool calls (dataset/schema lookup, SQL/Python execution).
 3. QueryPlan (if used) is compiled to SQL in agent-server.
 4. SQL/Python execution happens only inside the configured sandbox provider (`docker` or `microsandbox`).
 5. Result + metadata are stored in run capsules and returned to the UI.
@@ -75,7 +74,7 @@ make run-agent-dev
 
 Then open `http://localhost:8000`.
 
-Optional (observability):
+Optional (observability with MLflow tracing):
 
 ```bash
 make run-mlflow
@@ -84,13 +83,23 @@ make run-mlflow
 Use the Make target (instead of invoking `mlflow` directly) so the venv bin
 path is injected; this ensures MLflow can find `huey_consumer.py`.
 
-Then set in `.env`:
+Then set in `.env` (repo root), and restart the agent server:
 
 ```bash
 MLFLOW_OPENAI_AUTOLOG=true
 MLFLOW_TRACKING_URI=http://localhost:5000
 MLFLOW_EXPERIMENT_NAME=CSV Analyst Agent
 ```
+
+MLflow notes:
+- Open `http://localhost:5000` and inspect traces under the `CSV Analyst Agent` experiment.
+- `/chat` and `/chat/stream` are traced with per-turn metadata:
+  - `mlflow.trace.user` (from `user_id`)
+  - `mlflow.trace.session` (from `thread_id`)
+- The static UI auto-persists:
+  - `thread_id` in `localStorage.csvAnalystThreadId`
+  - `user_id` in `localStorage.csvAnalystUserId`
+- Trace input now includes the chat payload (`dataset_id`, `message`, `thread_id`, `input_mode`) so prompts are visible in MLflow.
 
 ## API Surface (Single-File Server)
 
@@ -126,13 +135,14 @@ make test-agent-server
 make test-runner
 ```
 
-Current validated counts:
-- `104` unit tests
-- `25` single-file server integration tests
-- `14` runner + DockerExecutor integration tests
-- `6` MicroSandbox executor/provider tests (`RUN_MICROSANDBOX_TESTS=1` for live integration)
-- `6` security policy tests
-- `155` tests total (`155/155` pass in live-enabled run)
+Current suite:
+- Unit tests (`tests/unit`)
+- Integration tests (`tests/integration`)
+- Security tests (`tests/security`)
+- Optional live MicroSandbox integration (`RUN_MICROSANDBOX_TESTS=1`)
+
+Tip:
+- `agent-server/.venv/bin/pytest tests --collect-only -q` shows the current collected test total for your local branch.
 
 ## Make Targets You’ll Use Most
 
@@ -174,8 +184,12 @@ Defined in `.env.example`:
 .
 ├── agent-server/
 │   ├── app/
-│   │   ├── main.py               # single-file FastAPI server
+│   │   ├── main.py               # FastAPI routes + wiring
+│   │   ├── agent.py              # LangGraph/LangChain agent loop
+│   │   ├── tools.py              # Agent tools (execute SQL/Python, schema lookup, etc.)
+│   │   ├── llm.py                # LLM/provider factory
 │   │   ├── models/query_plan.py  # QueryPlan DSL
+│   │   ├── executors/            # Docker and MicroSandbox executors
 │   │   └── validators/compiler.py
 │   └── demo_query_plan.py
 ├── datasets/
@@ -187,6 +201,6 @@ Defined in `.env.example`:
 
 ## Notes
 
-- This repo is optimized for a clear PoC narrative: deterministic DSL + secure execution boundary + minimal server/UI footprint.
+- This repo is optimized for a clear PoC narrative: deterministic DSL + secure execution boundary + pragmatic tool-calling agent.
 - For the detailed server design, see `AGENT_SERVER_SPECIFICATION.md`.
 - For the Python-in-runner extension plan (same image, separate entrypoint), see `PYTHON_EXECUTION_SPEC.md`.

@@ -10,6 +10,20 @@
 
 ---
 
+## Status Snapshot (2026-02-03)
+
+- ✅ **Phase 0 complete** (bootstrap/planning).
+- ✅ **Phase 1 effectively complete** for local MVP + stretch Python sandbox mode:
+  datasets, QueryPlan DSL/compiler, SQL policy, Docker runner/executor, agent server, stateful UI, run capsules, tests.
+- ✅ **Agent architecture upgraded** to real LangChain/LangGraph tool-calling flow (`app/agent.py`, `app/tools.py`).
+- ✅ **MicroSandbox provider path implemented** (with Docker remaining default/local baseline).
+- ✅ **MLflow tracing integrated** (OpenAI autolog + session metadata on chat turns).
+- 🚧 **Main remaining PRD gap** is production deployment track (Kubernetes Job executor + Helm + hosted runbook + acceptance pass).
+
+> Note: some deeper Phase 2/3/4 checkbox items below are stale relative to recent implementation work and should be normalized in a follow-up pass.
+
+---
+
 ## Phase 0: Bootstrap & Planning (Day 0)
 
 ### P0.1 Project Structure

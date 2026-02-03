@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- LangChain/LangGraph tool-calling agent architecture (`app/agent.py`, `app/tools.py`, `app/llm.py`) replacing the earlier single-pass planner flow
+- Targeted regression coverage for multi-turn ecommerce follow-up behavior and recursion-limit failure prevention paths
+- MLflow tracing integration for chat turns, including per-session metadata (`mlflow.trace.user`, `mlflow.trace.session`)
+- Static UI support for stable `user_id` propagation to the server (stored in browser local storage)
 - Initial project structure and directory organization
 - Project documentation (README.md, CLAUDE.md, CONTRIBUTING.md)
 - Development tooling (Makefile with 30+ commands)
@@ -99,6 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs with MicroSandbox test toggles and troubleshooting guidance
 - Updated test/UI integration assertion for the current static UI shell text
 - Updated project test counts to reflect live-enabled full-suite pass (`155/155`)
+- Updated requirements to `mlflow[genai]` for GenAI tracing extras
+- Updated README with current tool-calling architecture status and detailed MLflow run/troubleshooting guidance
+- Updated agent tracing flow so `/chat` and `/chat/stream` traces include request payload input context (prompt + dataset + mode)
 
 ### Deprecated
 - N/A
@@ -117,6 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DockerExecutor now handles docker SDK transport incompatibilities with CLI health-check fallback
 - MicroSandbox executor now normalizes `cpus`/volume config for live server compatibility and surfaces RPC HTTP error payloads
 - MicroSandbox timeout classification now remains stable in live fallback mode
+- Fixed `make run-mlflow` startup behavior by forcing venv bin into PATH (prevents `.../None` `huey_consumer.py` resolution errors)
+- Fixed MLflow trace input payload showing as `{}` by passing explicit trace input payload through traced wrappers
 
 ### Security
 - SQL injection prevention in QueryPlan compiler
