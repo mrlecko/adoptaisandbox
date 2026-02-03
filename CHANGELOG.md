@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Golden-path local smoke script and Make target: `make first-run-check` (`scripts/first_run_check.sh`) with deterministic `/healthz` + `/datasets` + sandboxed `/chat` verification
+- Agent onboarding signpost for rapid project navigation (`AGENT_SIGNPOST.md`)
+- Human-readable full architecture/use-case map (`SOLUTION_ARCHITECTURE_MAP.md`) aligned to updated `project.canvas`
+- Deterministic evidence bundle with reproducible command outputs/log references (`docs/EVIDENCE.md`)
 - Initial Helm chart scaffold for Kubernetes deployment (`helm/csv-analyst-chat`) with values schema, Deployment/Service/Ingress, PVC, RBAC, and NetworkPolicy templates
 - Native Kubernetes sandbox backend via `K8sJobExecutor` (`agent-server/app/executors/k8s_executor.py`) with per-run Job creation, polling, pod-log result parsing, and best-effort cleanup
 - Kubernetes-oriented image build paths with baked datasets (`agent-server/Dockerfile.k8s`, `runner/Dockerfile.k8s`)
@@ -99,6 +103,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MicroSandbox executor CLI fallback path (`msb exe`) for environments where JSON-RPC image/runtime constraints block direct execution
 
 ### Changed
+- CI workflow hardened for image/test consistency:
+  - Python 3.13 for workflow parity with local venv baseline
+  - Explicit separation of core tests vs Docker integration tests
+  - Docker integration gate before image build/push
 - Expanded Makefile Kubernetes workflow with `helm-lint`, `helm-template`, `build-agent-k8s`, `build-runner-k8s`, image loading for kind, and concrete `k8s-smoke`
 - Extended sandbox provider configuration to support `SANDBOX_PROVIDER=k8s` across settings/env/factory/Helm schema
 - Added Makefile profile helpers for Kubernetes Helm contexts:
@@ -114,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/runs` now returns/persists executor run IDs and includes `stdout_trunc`/`stderr_trunc` in result payloads for easier runner diagnostics
 - Updated CLAUDE.md with dataset generation and testing guidance
 - Updated README.md with current project status
+- Updated README/PRD/TODO to establish one canonical implementation status source (`TODO.md` status map)
 - Updated TODO.md with completed tasks (Phase 0.1, 1.1, 1.2)
 - Updated runner timeout classification to return `RUNNER_TIMEOUT` consistently
 - Updated support/sensors dataset generation for data validity edge cases

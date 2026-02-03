@@ -5,7 +5,6 @@ import json
 import sys
 import uuid
 
-import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult

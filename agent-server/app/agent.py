@@ -447,7 +447,10 @@ class AgentSession:
                 if kind == "on_chat_model_stream":
                     chunk = data.get("chunk")
                     if chunk and hasattr(chunk, "content") and chunk.content:
-                        yield {"event": "token", "data": {"content": str(chunk.content)}}
+                        yield {
+                            "event": "token",
+                            "data": {"content": str(chunk.content)},
+                        }
 
                 elif kind == "on_tool_start":
                     yield {

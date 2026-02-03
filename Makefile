@@ -1,7 +1,7 @@
 # CSV Analyst Chat - Makefile
 # Common development tasks
 
-.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev run-mlflow agent-venv local-preflight local-deploy local-smoke deploy-all-local k8s-preflight k8s-load-images k8s-create-llm-secret k8s-deploy-k8s-job k8s-deploy-microsandbox k8s-test-runs helm-lint helm-template helm-template-k8s-job helm-template-microsandbox helm-install-k8s-job helm-install-microsandbox build-agent-k8s build-runner-k8s kind-load-agent-image
+.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev run-mlflow agent-venv first-run-check local-preflight local-deploy local-smoke deploy-all-local k8s-preflight k8s-load-images k8s-create-llm-secret k8s-deploy-k8s-job k8s-deploy-microsandbox k8s-test-runs helm-lint helm-template helm-template-k8s-job helm-template-microsandbox helm-install-k8s-job helm-install-microsandbox build-agent-k8s build-runner-k8s kind-load-agent-image
 
 # Default target
 .DEFAULT_GOAL := help
@@ -75,6 +75,9 @@ run-agent-microsandbox: agent-venv ## Run agent server with MicroSandbox provide
 
 run-mlflow: agent-venv ## Run local MLflow tracking server (http://localhost:5000)
 	PATH="$(abspath $(AGENT_VENV))/bin:$$PATH" $(AGENT_MLFLOW) server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns
+
+first-run-check: agent-venv ## Golden-path local smoke: start server and verify /healthz, /datasets, and sandboxed /chat SQL
+	./scripts/first_run_check.sh
 
 local-preflight: ## Check local (non-K8s) prerequisites
 	@command -v python3 >/dev/null || (echo "ERROR: python3 is required."; exit 1)

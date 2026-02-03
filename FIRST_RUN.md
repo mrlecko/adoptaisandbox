@@ -107,6 +107,16 @@ Expected:
 
 - Open `http://127.0.0.1:8000`
 
+## Optional one-command validation
+
+After setup, you can run:
+
+```bash
+OPENAI_API_KEY=<YOUR_KEY> make first-run-check
+```
+
+This performs a deterministic pass/fail startup + sandbox query verification.
+
 ## Common Failures
 
 - `No LLM key configured...`

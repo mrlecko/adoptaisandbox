@@ -18,6 +18,10 @@ If you are making changes, your default success criteria are:
 3. Existing tests continue to pass (or new failures are understood and documented).
 4. Docs and Make usage stay accurate.
 
+Status + proof references:
+- Canonical status tracker: `TODO.md` ("Status Source of Truth" / "Status Map")
+- Deterministic verification logs: `docs/EVIDENCE.md`
+
 ---
 
 ## 2) Fast Project Mental Model
@@ -96,6 +100,7 @@ The Makefile is broad; some targets are mature and some are placeholders.
 
 ## B. Local first-run path
 - Use `FIRST_RUN.md` for exact bootstrap sequence.
+- Use `make first-run-check` for deterministic pass/fail startup validation.
 - Minimum local requirement for sandbox execution: **Docker daemon running**.
 
 ## C. Kubernetes path (mature)
@@ -220,4 +225,3 @@ For fastest onboarding, read in this order:
 6. `runner/runner.py` and `runner/runner_python.py`
 7. `tests/integration/test_agent_server_singlefile.py`
 8. `DEPLOYMENT.md`
-

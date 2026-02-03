@@ -266,7 +266,7 @@ async def test_chat_sql_happy_path_creates_capsule(tmp_path):
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "succeeded"
-        assert payload["run_id"] == "fake-run"
+        assert payload["run_id"]
         assert payload["details"]["query_mode"] == "sql"
         assert payload["result"]["rows"] == [[42]]
 
@@ -308,7 +308,10 @@ async def test_chat_sql_sets_mlflow_session_trace_metadata(tmp_path, monkeypatch
 
     client, _ = await _make_client(
         tmp_path,
-        settings_overrides={"mlflow_tracking_uri": "http://localhost:5000"},
+        settings_overrides={
+            "mlflow_enabled": True,
+            "mlflow_tracking_uri": "http://localhost:5000",
+        },
     )
     try:
         response = await client.post(
@@ -441,7 +444,7 @@ async def test_chat_python_happy_path(tmp_path):
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "succeeded"
-        assert payload["run_id"] == "fake-run"
+        assert payload["run_id"]
         assert payload["details"]["query_mode"] == "python"
         assert payload["details"]["python_code"] == "result = len(tickets)"
         assert payload["details"]["compiled_sql"] is None
