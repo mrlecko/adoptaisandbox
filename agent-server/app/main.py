@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from .models.query_plan import QueryPlan, SelectColumn
 from .validators.compiler import QueryPlanCompiler
@@ -85,6 +85,27 @@ class AgentDraft(BaseModel):
     assistant_message: str = "Done."
     plan: Optional[QueryPlan] = None
     sql: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_executable_payload(self) -> "AgentDraft":
+        if self.query_mode == "plan" and self.plan is None:
+            raise ValueError("plan is required when query_mode='plan'")
+        if self.query_mode == "sql" and not (self.sql and self.sql.strip()):
+            raise ValueError("sql is required when query_mode='sql'")
+        return self
+
+
+class SqlRescueDraft(BaseModel):
+    """Backup structured output when plan generation is non-executable."""
+
+    sql: str
+    assistant_message: str = "Executed query."
+
+    @model_validator(mode="after")
+    def _validate_sql(self) -> "SqlRescueDraft":
+        if not self.sql.strip():
+            raise ValueError("sql is required")
+        return self
 
 
 SQL_BLOCKLIST = [
@@ -440,6 +461,129 @@ def _coerce_agent_draft(raw: Any) -> Optional[AgentDraft]:
     return None
 
 
+def _coerce_sql_rescue_draft(raw: Any) -> Optional[SqlRescueDraft]:
+    if raw is None:
+        return None
+    if isinstance(raw, SqlRescueDraft):
+        return raw
+
+    candidate: Any = raw
+    if isinstance(raw, dict):
+        if isinstance(raw.get("parsed"), SqlRescueDraft):
+            return raw["parsed"]
+        if isinstance(raw.get("parsed"), dict):
+            candidate = raw["parsed"]
+        elif isinstance(raw.get("output"), dict):
+            candidate = raw["output"]
+
+    if isinstance(candidate, dict):
+        try:
+            return SqlRescueDraft.model_validate(candidate)
+        except ValidationError:
+            return None
+
+    if hasattr(candidate, "content") and isinstance(candidate.content, str):
+        text = candidate.content.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        try:
+            data = json.loads(text)
+            return SqlRescueDraft.model_validate(data)
+        except (json.JSONDecodeError, ValidationError):
+            return None
+
+    if hasattr(candidate, "model_dump"):
+        try:
+            return SqlRescueDraft.model_validate(candidate.model_dump())
+        except ValidationError:
+            return None
+
+    return None
+
+
+def _generate_sql_rescue_with_langchain(
+    settings: Settings,
+    dataset: Dict[str, Any],
+    message: str,
+    max_rows: int,
+) -> Optional[SqlRescueDraft]:
+    """Fallback LLM path: ask for SQL-only structured payload."""
+    try:
+        from langchain_core.prompts import ChatPromptTemplate
+    except Exception:
+        return None
+
+    schema_summary = {
+        "dataset_id": dataset["id"],
+        "description": dataset.get("description"),
+        "files": [
+            {
+                "name": f["name"],
+                "schema": list(f.get("schema", {}).keys()),
+            }
+            for f in dataset.get("files", [])
+        ],
+    }
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "Return only executable SQL for DuckDB in a structured response. "
+                    "Use only tables from schema; enforce LIMIT <= {max_rows}. "
+                    "Return one SELECT/WITH query."
+                ),
+            ),
+            ("human", "Dataset schema: {schema}\n\nUser message: {message}"),
+        ]
+    )
+
+    model = None
+    provider = settings.llm_provider
+
+    if provider in ("auto", "openai") and settings.openai_api_key:
+        try:
+            from langchain_openai import ChatOpenAI
+        except Exception:
+            if provider == "openai":
+                return None
+        else:
+            model = ChatOpenAI(
+                model=settings.openai_model,
+                temperature=0,
+                api_key=settings.openai_api_key,
+            ).with_structured_output(SqlRescueDraft)
+
+    if model is None and provider in ("auto", "anthropic") and settings.anthropic_api_key:
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except Exception:
+            if provider == "anthropic":
+                return None
+        else:
+            model = ChatAnthropic(
+                model=settings.anthropic_model,
+                temperature=0,
+                api_key=settings.anthropic_api_key,
+            ).with_structured_output(SqlRescueDraft)
+
+    if model is None:
+        return None
+
+    chain = prompt | model
+    raw = chain.invoke(
+        {
+            "schema": json.dumps(schema_summary),
+            "message": message,
+            "max_rows": max_rows,
+        }
+    )
+    return _coerce_sql_rescue_draft(raw)
+
+
 @dataclass
 class AppServices:
     settings: Settings
@@ -527,12 +671,24 @@ def create_app(
                     sql = compiled_sql
             else:
                 if raw_draft is not None:
-                    LOGGER.warning("LLM output could not be parsed as AgentDraft; using safe fallback.")
-                plan = _fallback_plan(request.dataset_id, dataset, services.settings.max_rows)
-                plan_json = plan.model_dump()
-                compiled_sql = services.compiler.compile(plan)
-                sql = compiled_sql
-                assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
+                    LOGGER.warning("LLM output could not be parsed as AgentDraft; trying SQL rescue.")
+
+                rescue = _generate_sql_rescue_with_langchain(
+                    settings=services.settings,
+                    dataset=dataset,
+                    message=request.message,
+                    max_rows=services.settings.max_rows,
+                )
+                if rescue:
+                    query_mode = "sql"
+                    assistant_message = rescue.assistant_message
+                    sql = rescue.sql
+                else:
+                    plan = _fallback_plan(request.dataset_id, dataset, services.settings.max_rows)
+                    plan_json = plan.model_dump()
+                    compiled_sql = services.compiler.compile(plan)
+                    sql = compiled_sql
+                    assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
 
         status_cb("validating")
         sql_policy_error = _validate_sql_policy(sql)

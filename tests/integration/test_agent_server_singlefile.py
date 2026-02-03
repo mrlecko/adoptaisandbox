@@ -174,6 +174,79 @@ async def test_chat_non_sql_accepts_dict_draft_from_llm(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_chat_non_executable_draft_falls_back_safely(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **__):
+        return {
+            "query_mode": "plan",
+            "assistant_message": "I will query the table for you.",
+            # Missing `plan`: should be treated as invalid/non-executable.
+        }
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+
+    client = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "Find the highest ticket volume day.",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "plan"
+        assert payload["assistant_message"] == "LLM unavailable or invalid response; executed a safe fallback query."
+        assert payload["details"]["compiled_sql"]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_non_executable_draft_uses_sql_rescue(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **__):
+        return {
+            "query_mode": "plan",
+            "assistant_message": "I will query the table for you.",
+            # Missing `plan`: invalid for execution.
+        }
+
+    def fake_rescue(*_, **__):
+        return app_main.SqlRescueDraft(
+            sql="SELECT COUNT(*) AS n FROM tickets LIMIT 1",
+            assistant_message="Executed via SQL rescue.",
+        )
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+    monkeypatch.setattr(app_main, "_generate_sql_rescue_with_langchain", fake_rescue)
+
+    client = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "How many tickets are there?",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "sql"
+        assert payload["assistant_message"] == "Executed via SQL rescue."
+        assert payload["result"]["rows"] == [[42]]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
 async def test_chat_stream_emits_status_and_result_events(tmp_path):
     client = await _make_client(tmp_path)
     try:
