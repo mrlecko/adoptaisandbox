@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stateful conversation support via `thread_id` with persisted message history (`/threads/{thread_id}/messages`)
 - Result-grounded assistant output synthesis (inline scalar answers + complex result references)
 - Scrollable two-sided chat transcript UI (user left, assistant right) with thread persistence in browser
+- Configurable sandbox provider selection (`SANDBOX_PROVIDER=docker|microsandbox`)
+- MicroSandbox executor implementation with JSON-RPC lifecycle (`sandbox.start` / `sandbox.repl.run` / `sandbox.stop`)
+- Executor factory wiring and app startup provider selection
+- New thread/history endpoint (`GET /threads/{thread_id}/messages`) and persisted stateful chat memory
+- MicroSandbox integration test suite scaffold (`tests/integration/test_microsandbox_executor_integration.py`) with SQL, Python, policy, timeout scenarios (opt-in)
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -87,6 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated TODO/implementation docs to mark Phase 0 complete and Phase 1 complete except stretch AST parser
 - Updated `make test-runner` to always use `agent-server/.venv` and include DockerExecutor integration tests
 - Updated `.env.example` and docs with storage/thread memory configuration (`STORAGE_PROVIDER`, `THREAD_HISTORY_WINDOW`)
+- Updated `.env.example` with MicroSandbox configuration (`MSB_*`, `SANDBOX_PROVIDER`)
+- Updated Makefile with `run-agent-microsandbox` and `test-microsandbox` targets
+- Updated docs with MicroSandbox test toggles and troubleshooting guidance
 
 ### Deprecated
 - N/A

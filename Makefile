@@ -55,6 +55,9 @@ run-agent: agent-venv ## Run single-file FastAPI agent server
 run-agent-dev: agent-venv ## Run single-file FastAPI agent server with auto-reload
 	$(AGENT_UVICORN) app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
 
+run-agent-microsandbox: agent-venv ## Run agent server with MicroSandbox provider
+	SANDBOX_PROVIDER=microsandbox $(AGENT_UVICORN) app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
+
 ##@ Testing
 
 test: agent-venv ## Run all tests
@@ -81,6 +84,10 @@ test-integration: agent-venv ## Run integration tests only
 test-security: agent-venv ## Run security tests (red team)
 	@echo "Running security tests..."
 	$(AGENT_PYTEST) tests/security/ -v
+
+test-microsandbox: agent-venv ## Run MicroSandbox provider tests (set RUN_MICROSANDBOX_TESTS=1 for live integration)
+	@echo "Running MicroSandbox executor/provider tests..."
+	$(AGENT_PYTEST) tests/unit/test_microsandbox_executor.py tests/unit/test_executor_factory.py tests/unit/test_sandbox_provider_selection.py tests/integration/test_microsandbox_executor_integration.py -v
 
 coverage: agent-venv ## Generate test coverage report
 	$(AGENT_PYTEST) tests/ --cov=agent-server --cov-report=html --cov-report=term

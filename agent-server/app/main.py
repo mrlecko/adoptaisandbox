@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from .datasets import get_dataset_by_id, load_registry
+from .executors import create_sandbox_executor
 from .models.query_plan import QueryPlan, SelectColumn
 from .storage import MessageStore, create_message_store
 from .storage.capsules import get_capsule, init_capsule_db, insert_capsule
@@ -59,9 +60,25 @@ class Settings(BaseModel):
     max_rows: int = Field(default=200)
     max_output_bytes: int = Field(default=65536)
     enable_python_execution: bool = Field(default=True)
+    sandbox_provider: Literal["docker", "microsandbox"] = Field(default="docker")
+    msb_server_url: str = Field(default="http://127.0.0.1:5555/api/v1/rpc")
+    msb_api_key: str = Field(default="")
+    msb_namespace: str = Field(default="default")
+    msb_memory_mb: int = Field(default=512)
+    msb_cpus: float = Field(default=1.0)
     storage_provider: str = Field(default="sqlite")
     thread_history_window: int = Field(default=12)
     log_level: str = Field(default="info")
+
+    @model_validator(mode="after")
+    def _validate_provider_config(self) -> "Settings":
+        if self.sandbox_provider == "microsandbox" and not self.msb_server_url.strip():
+            raise ValueError("msb_server_url is required when sandbox_provider=microsandbox")
+        if self.msb_memory_mb <= 0:
+            raise ValueError("msb_memory_mb must be > 0")
+        if self.msb_cpus <= 0:
+            raise ValueError("msb_cpus must be > 0")
+        return self
 
 
 class ChatRequest(BaseModel):
@@ -300,6 +317,39 @@ def _default_runner_executor(
                 "message": "Runner returned invalid JSON.",
             },
         }
+
+
+def _build_runner_payload(
+    dataset: Dict[str, Any],
+    sql: str,
+    timeout_seconds: int,
+    max_rows: int,
+    query_type: str,
+    python_code: Optional[str],
+    max_output_bytes: int,
+) -> Dict[str, Any]:
+    files = []
+    for entry in dataset.get("files", []):
+        files.append(
+            {
+                "name": entry["name"],
+                "path": f"/data/{entry['path']}",
+            }
+        )
+
+    payload: Dict[str, Any] = {
+        "dataset_id": dataset["id"],
+        "files": files,
+        "query_type": query_type,
+        "timeout_seconds": timeout_seconds,
+        "max_rows": max_rows,
+        "max_output_bytes": max_output_bytes,
+    }
+    if query_type == "python":
+        payload["python_code"] = python_code or ""
+    else:
+        payload["sql"] = sql
+    return payload
 
 
 def _fallback_plan(dataset_id: str, dataset: Dict[str, Any], max_rows: int) -> QueryPlan:
@@ -810,6 +860,12 @@ def create_app(
         max_rows=int(os.getenv("MAX_ROWS", "200")),
         max_output_bytes=int(os.getenv("MAX_OUTPUT_BYTES", "65536")),
         enable_python_execution=os.getenv("ENABLE_PYTHON_EXECUTION", "true").lower() == "true",
+        sandbox_provider=os.getenv("SANDBOX_PROVIDER", "docker"),
+        msb_server_url=os.getenv("MSB_SERVER_URL", "http://127.0.0.1:5555/api/v1/rpc"),
+        msb_api_key=os.getenv("MSB_API_KEY", ""),
+        msb_namespace=os.getenv("MSB_NAMESPACE", "default"),
+        msb_memory_mb=int(os.getenv("MSB_MEMORY_MB", "512")),
+        msb_cpus=float(os.getenv("MSB_CPUS", "1.0")),
         storage_provider=os.getenv("STORAGE_PROVIDER", "sqlite"),
         thread_history_window=int(os.getenv("THREAD_HISTORY_WINDOW", "12")),
         log_level=os.getenv("LOG_LEVEL", "info"),
@@ -820,10 +876,52 @@ def create_app(
     message_store = create_message_store(settings.storage_provider, settings.capsule_db_path)
     message_store.initialize()
 
+    default_runner_callable: Callable[..., Dict[str, Any]]
+    if settings.sandbox_provider == "docker":
+        default_runner_callable = _default_runner_executor
+    else:
+        sandbox_executor = create_sandbox_executor(
+            provider=settings.sandbox_provider,
+            runner_image=settings.runner_image,
+            datasets_dir=settings.datasets_dir,
+            timeout_seconds=settings.run_timeout_seconds,
+            max_rows=settings.max_rows,
+            max_output_bytes=settings.max_output_bytes,
+            msb_server_url=settings.msb_server_url,
+            msb_api_key=settings.msb_api_key,
+            msb_namespace=settings.msb_namespace,
+            msb_memory_mb=settings.msb_memory_mb,
+            msb_cpus=settings.msb_cpus,
+        )
+
+        def _provider_runner_executor(
+            _settings: Settings,
+            dataset: Dict[str, Any],
+            sql: str,
+            timeout_seconds: int,
+            max_rows: int,
+            query_type: str = "sql",
+            python_code: Optional[str] = None,
+            max_output_bytes: int = 65536,
+        ) -> Dict[str, Any]:
+            payload = _build_runner_payload(
+                dataset=dataset,
+                sql=sql,
+                timeout_seconds=timeout_seconds,
+                max_rows=max_rows,
+                query_type=query_type,
+                python_code=python_code,
+                max_output_bytes=max_output_bytes,
+            )
+            out = sandbox_executor.submit_run(payload, query_type=query_type)
+            return out.get("result", {})
+
+        default_runner_callable = _provider_runner_executor
+
     app = FastAPI(title="CSV Analyst Agent Server")
     app.state.services = AppServices(
         settings=settings,
-        runner_executor=runner_executor or _default_runner_executor,
+        runner_executor=runner_executor or default_runner_callable,
         compiler=QueryPlanCompiler(),
         message_store=message_store,
     )
@@ -941,6 +1039,7 @@ def create_app(
             run_id=run_id,
             thread_id=thread_id,
             dataset_id=request.dataset_id,
+            sandbox_provider=services.settings.sandbox_provider,
             message=request.message,
         )
 
@@ -1037,7 +1136,12 @@ def create_app(
                     python_code=None,
                 )
                 persist_assistant(response.assistant_message)
-                _log_event("chat.rejected", run_id=run_id, reason="python_disabled")
+                _log_event(
+                    "chat.rejected",
+                    run_id=run_id,
+                    reason="python_disabled",
+                    sandbox_provider=services.settings.sandbox_provider,
+                )
                 return response
             query_mode = "python"
             if explicit_python:
@@ -1101,7 +1205,12 @@ def create_app(
                             python_code=None,
                         )
                         persist_assistant(response.assistant_message)
-                        _log_event("chat.rejected", run_id=run_id, reason="python_generation_failed")
+                        _log_event(
+                            "chat.rejected",
+                            run_id=run_id,
+                            reason="python_generation_failed",
+                            sandbox_provider=services.settings.sandbox_provider,
+                        )
                         return response
             sql = ""
         elif explicit_sql:
@@ -1147,7 +1256,13 @@ def create_app(
                         python_code=None,
                     )
                     persist_assistant(response.assistant_message)
-                    _log_event("chat.completed", run_id=run_id, status=response.status, query_mode="chat")
+                    _log_event(
+                        "chat.completed",
+                        run_id=run_id,
+                        status=response.status,
+                        query_mode="chat",
+                        sandbox_provider=services.settings.sandbox_provider,
+                    )
                     return response
                 if query_mode == "sql":
                     sql = draft.sql or ""
@@ -1209,7 +1324,12 @@ def create_app(
                         python_code=None,
                     )
                     persist_assistant(response.assistant_message)
-                    _log_event("chat.rejected", run_id=run_id, reason="llm_unavailable_or_invalid")
+                    _log_event(
+                        "chat.rejected",
+                        run_id=run_id,
+                        reason="llm_unavailable_or_invalid",
+                        sandbox_provider=services.settings.sandbox_provider,
+                    )
                     return response
 
         if query_mode not in {"python", "chat"}:
@@ -1250,7 +1370,12 @@ def create_app(
                     python_code=python_code,
                 )
                 persist_assistant(response.assistant_message)
-                _log_event("chat.rejected", run_id=run_id, reason="sql_policy")
+                _log_event(
+                    "chat.rejected",
+                    run_id=run_id,
+                    reason="sql_policy",
+                    sandbox_provider=services.settings.sandbox_provider,
+                )
                 return response
         else:
             status_cb("validating")
@@ -1302,7 +1427,13 @@ def create_app(
             python_code=python_code,
         )
         persist_assistant(response.assistant_message)
-        _log_event("chat.completed", run_id=run_id, status=response.status, query_mode=query_mode)
+        _log_event(
+            "chat.completed",
+            run_id=run_id,
+            status=response.status,
+            query_mode=query_mode,
+            sandbox_provider=services.settings.sandbox_provider,
+        )
         return response
 
     @app.get("/healthz")

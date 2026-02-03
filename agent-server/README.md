@@ -51,6 +51,8 @@ Key vars:
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
+- `SANDBOX_PROVIDER` (`docker|microsandbox`)
+- `MSB_SERVER_URL`, `MSB_API_KEY`, `MSB_NAMESPACE`, `MSB_MEMORY_MB`, `MSB_CPUS`
 - `STORAGE_PROVIDER` (currently `sqlite`)
 - `THREAD_HISTORY_WINDOW` (message count loaded into prompt context)
 
@@ -61,6 +63,8 @@ From repo root:
 ```bash
 make agent-venv
 make run-agent-dev
+# or MicroSandbox mode:
+make run-agent-microsandbox
 ```
 
 or directly:
@@ -83,6 +87,11 @@ Notes:
 # Server integration
 make test-agent-server
 
+# MicroSandbox provider tests (unit + optional live integration)
+make test-microsandbox
+# to run live MicroSandbox integration checks:
+RUN_MICROSANDBOX_TESTS=1 make test-microsandbox
+
 # QueryPlan/compiler unit tests
 pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
 ```
@@ -100,4 +109,5 @@ This demonstrates the DSL and deterministic SQL compilation path used by the ser
 
 - Python sandbox execution is live behind `ENABLE_PYTHON_EXECUTION=true`.
 - `DockerExecutor` is implemented under `app/executors/` and validated with integration tests.
+- `MicroSandboxExecutor` is available and selected with `SANDBOX_PROVIDER=microsandbox`.
 - If Docker SDK transport fails in some environments, executor health-check falls back to Docker CLI.

@@ -27,13 +27,13 @@ In progress:
 1. UI (static page from FastAPI) calls `/chat` or `/chat/stream`.
 2. Agent server generates/accepts query intent (plan or SQL).
 3. QueryPlan (if used) is compiled to SQL in agent-server.
-4. SQL is executed only inside the runner container.
+4. SQL/Python execution happens only inside the configured sandbox provider (`docker` or `microsandbox`).
 5. Result + metadata are stored in run capsules and returned to the UI.
 
 Important arrangement:
 - The runner does **not** parse QueryPlan DSL.
 - QueryPlan DSL remains upstream in agent-server (`agent-server/demo_query_plan.py`, compiler, validators).
-- Runner receives SQL + dataset file mapping only.
+- Runner receives SQL/Python payload + dataset file mapping only.
 
 ## Quick Start
 
@@ -108,19 +108,29 @@ make test-runner
 ```
 
 Current validated counts:
-- `91` unit tests
+- `104` unit tests
 - `25` single-file server integration tests
 - `14` runner + DockerExecutor integration tests
+- `4` MicroSandbox integration tests (opt-in; run with `RUN_MICROSANDBOX_TESTS=1`)
 - `6` security policy tests
-- `139` tests total (`125` pass + `14` Docker-dependent skips under plain `make test`)
+- `153` tests total (`135` pass + `18` environment-dependent skips under plain `make test`)
 
 ## Make Targets You’ll Use Most
 
 - `make run-agent`
 - `make run-agent-dev`
+- `make run-agent-microsandbox`
 - `make test-agent-server`
 - `make test-runner`
+- `make test-microsandbox`
 - `make test-unit`
+
+## MicroSandbox Troubleshooting
+
+- If MicroSandbox tests are skipped, set `RUN_MICROSANDBOX_TESTS=1`.
+- If provider startup fails, verify `MSB_SERVER_URL` and that `/api/v1/health` is reachable.
+- Ensure `RUNNER_IMAGE` is available to the MicroSandbox runtime.
+- Use `SANDBOX_PROVIDER=docker` as the default fallback during local development.
 
 ## Key Environment Variables
 
@@ -130,6 +140,8 @@ Defined in `.env.example`:
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
+- `SANDBOX_PROVIDER` (`docker|microsandbox`)
+- `MSB_SERVER_URL`, `MSB_API_KEY`, `MSB_NAMESPACE`, `MSB_MEMORY_MB`, `MSB_CPUS`
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
 - `STORAGE_PROVIDER` (`sqlite` currently)
 - `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)
