@@ -1,180 +1,691 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CSV Analyst Chat</title>
   <style>
-    body { font-family: sans-serif; margin: 2rem; max-width: 900px; }
-    textarea, input, select { width: 100%; margin-top: .5rem; margin-bottom: 1rem; }
-    table, th, td { border: 1px solid #ddd; border-collapse: collapse; padding: .25rem .5rem; }
-    #status { color: #555; margin-bottom: .75rem; }
-    pre { background: #f6f6f6; padding: .5rem; overflow-x: auto; }
-    #messages { border: 1px solid #ddd; background: #fafafa; height: 320px; overflow-y: auto; padding: .75rem; margin-bottom: 1rem; }
-    #thread-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
-    #thread-id { color: #666; font-size: .9rem; }
-    .msg-row { display: flex; margin: .35rem 0; }
-    .msg-row.user { justify-content: flex-start; }
+    /* ─── Reset & Tokens ────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #f0f4f8;
+      --surface:      #ffffff;
+      --surface-alt:  #f7f8fa;
+      --border:       #e2e8f0;
+      --text:         #1e293b;
+      --text-muted:   #64748b;
+      --primary:      #4f46e5;
+      --primary-h:    #4338ca;
+      --primary-sub:  #eef2ff;
+      --success:      #16a34a;
+      --success-sub:  #dcfce7;
+      --error:        #dc2626;
+      --error-sub:    #fee2e2;
+      --warn:         #d97706;
+      --warn-sub:     #fef3c7;
+      --user-bg:      #eef2ff;
+      --asst-bg:      #f0fdf4;
+      --radius:       10px;
+      --radius-sm:    6px;
+      --shadow:       0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── App Shell ─────────────────────────────────────── */
+    .app { display: flex; flex-direction: column; height: 100%; }
+
+    /* ─── Header ────────────────────────────────────────── */
+    .app-header {
+      flex-shrink: 0;
+      height: 52px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      box-shadow: var(--shadow);
+      z-index: 10;
+    }
+    .app-header .logo {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -.02em;
+    }
+    .app-header .logo span { font-weight: 400; color: var(--text-muted); }
+    .app-header .hdr-badge {
+      margin-left: auto;
+      font-size: .7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+
+    /* ─── Two-Panel Grid ────────────────────────────────── */
+    .panels {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 420px 1fr;
+    }
+
+    /* ─── Left Panel ────────────────────────────────────── */
+    .panel-left {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Controls strip */
+    .controls {
+      flex-shrink: 0;
+      padding: .9rem 1rem .8rem;
+      background: var(--surface-alt);
+      border-bottom: 1px solid var(--border);
+    }
+    .controls .lbl {
+      display: block;
+      font-size: .68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .controls select {
+      width: 100%;
+      padding: .48rem .8rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E")
+        no-repeat right .7rem center;
+      background-size: 10px;
+      -webkit-appearance: none;
+      appearance: none;
+      font-size: .85rem;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .controls select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79,70,229,.18);
+    }
+
+    /* Suggested prompts */
+    #prompts { margin-top: .65rem; display: flex; flex-wrap: wrap; gap: 5px; }
+    .prompt-lbl {
+      width: 100%;
+      font-size: .68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+    .prompt-btn {
+      font-size: .75rem;
+      padding: 3px 10px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .prompt-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-sub); }
+
+    /* Thread bar */
+    .thread-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: .7rem;
+      padding-top: .6rem;
+      border-top: 1px solid var(--border);
+    }
+    #thread-id {
+      font-size: .7rem;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #new-thread {
+      font-size: .73rem;
+      font-weight: 600;
+      padding: 3px 9px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    #new-thread:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Message list */
+    #messages {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: .6rem .9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .msg-row { display: flex; }
+    .msg-row.user      { justify-content: flex-start; }
     .msg-row.assistant { justify-content: flex-end; }
-    .msg-bubble { max-width: 75%; border-radius: 12px; padding: .5rem .75rem; white-space: pre-wrap; }
-    .msg-bubble.user { background: #e9eefc; }
-    .msg-bubble.assistant { background: #e7f6ea; }
+    .msg-bubble {
+      max-width: 84%;
+      border-radius: 14px;
+      padding: .5rem .75rem;
+      font-size: .855rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,.07);
+    }
+    .msg-bubble.user      { background: var(--user-bg);  border-bottom-left-radius:  3px; }
+    .msg-bubble.assistant { background: var(--asst-bg);  border-bottom-right-radius: 3px; }
+
+    /* Input area */
+    .input-area {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      padding: .7rem .9rem;
+      background: var(--surface);
+    }
+    #message {
+      width: 100%;
+      resize: vertical;
+      min-height: 68px;
+      max-height: 160px;
+      padding: .55rem .7rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: .855rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    #message:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.18); }
+    #message::placeholder { color: var(--text-muted); }
+
+    .input-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: .45rem;
+    }
+    #status { min-height: 22px; display: flex; align-items: center; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .status-badge.streaming,
+    .status-badge.planning,
+    .status-badge.validating,
+    .status-badge.executing  { background: #eff6ff; color: #2563eb; }
+    .status-badge.succeeded  { background: var(--success-sub); color: var(--success); }
+    .status-badge.failed     { background: var(--error-sub);   color: var(--error);   }
+    .status-badge.error      { background: var(--error-sub);   color: var(--error);   }
+    .status-badge.rejected   { background: var(--warn-sub);    color: var(--warn);    }
+    .status-badge.idle       { background: var(--surface-alt); color: var(--text-muted); }
+
+    /* pulsing dot for active states */
+    .status-badge.streaming::before,
+    .status-badge.planning::before,
+    .status-badge.validating::before,
+    .status-badge.executing::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #3b82f6;
+      animation: pulse 1.3s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+
+    .send-row { display: flex; align-items: center; gap: .4rem; }
+    #send {
+      padding: .4rem 1.1rem;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: .82rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: .02em;
+      transition: background .15s;
+    }
+    #send:hover    { background: var(--primary-h); }
+    #send:active   { background: #3730a3; }
+    #send:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    .send-hint {
+      font-size: .67rem;
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .send-hint kbd {
+      display: inline-block;
+      font-size: .62rem;
+      font-family: inherit;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1px 4px;
+      color: var(--text-muted);
+    }
+
+    /* ─── Right Panel ───────────────────────────────────── */
+    .panel-right {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 1.1rem;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .card.result-card  { flex: 1; min-height: 0; }
+    .card.details-card { flex-shrink: 0; max-height: 260px; }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      padding: .5rem .9rem;
+      background: var(--surface-alt);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .card-head h2 {
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+    }
+    .card-head .card-meta {
+      margin-left: auto;
+      font-size: .7rem;
+      color: var(--text-muted);
+      background: var(--bg);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .card-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    /* Empty states */
+    .empty-state {
+      padding: 2.8rem 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .84rem;
+    }
+    .empty-state .ei { font-size: 1.7rem; display: block; margin-bottom: .45rem; opacity: .5; }
+    .empty-state.err { color: var(--error); }
+
+    /* ─── Result Table ──────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    thead { background: var(--surface-alt); }
+    th {
+      text-align: left;
+      padding: .48rem .7rem;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--text-muted);
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      background: var(--surface-alt);
+      z-index: 1;
+    }
+    td {
+      padding: .42rem .7rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+    tbody tr:last-child td          { border-bottom: none; }
+    tbody tr:nth-child(even)        { background: #fafbfc; }
+    tbody tr:hover                  { background: var(--primary-sub); }
+
+    /* ─── Details Pre ───────────────────────────────────── */
+    #details {
+      margin: 0;
+      padding: .9rem;
+      font-size: .78rem;
+      color: var(--text);
+      background: var(--surface-alt);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      min-height: 100%;
+    }
+    #details:empty::after {
+      content: 'No query details yet';
+      color: var(--text-muted);
+      font-style: italic;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    }
+
+    /* ─── Responsive ────────────────────────────────────── */
+    @media (max-width: 860px) {
+      .panels {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1.4fr 1fr;
+      }
+      .panel-left { border-right: none; border-bottom: 1px solid var(--border); }
+      .card.details-card { max-height: 200px; }
+    }
+    @media (max-width: 540px) {
+      .panels            { grid-template-rows: 1.6fr 1fr; }
+      .app-header .hdr-badge { display: none; }
+      .controls          { padding: .7rem .75rem .6rem; }
+      #messages          { padding: .5rem .6rem; }
+      .input-area        { padding: .6rem .75rem; }
+      .panel-right       { padding: .75rem; gap: .75rem; }
+    }
   </style>
 </head>
 <body>
-  <h1>CSV Analyst Chat (Minimal)</h1>
-  <label>Dataset</label>
-  <select id="dataset"></select>
-  <div id="prompts"></div>
-  <div id="thread-bar">
-    <div id="thread-id"></div>
-    <button id="new-thread" type="button">New conversation</button>
+<div class="app">
+
+  <!-- ─── Header ────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="logo">CSV Analyst <span>Chat</span></div>
+    <div class="hdr-badge">Data &middot; SQL &middot; Python</div>
+  </header>
+
+  <!-- ─── Panels ────────────────────────────────────── -->
+  <div class="panels">
+
+    <!-- Left: conversation -->
+    <aside class="panel-left">
+      <div class="controls">
+        <label class="lbl">Dataset</label>
+        <select id="dataset"></select>
+        <div id="prompts"></div>
+        <div class="thread-bar">
+          <span id="thread-id"></span>
+          <button id="new-thread" type="button">+ New conversation</button>
+        </div>
+      </div>
+
+      <div id="messages"></div>
+
+      <div class="input-area">
+        <textarea id="message" placeholder="Ask a question… or prefix with SQL: or PYTHON:"></textarea>
+        <div class="input-footer">
+          <div id="status"></div>
+          <div class="send-row">
+            <button id="send">Send</button>
+            <span class="send-hint"><kbd>Ctrl</kbd><kbd>↵</kbd></span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right: result + details -->
+    <main class="panel-right">
+      <div class="card result-card">
+        <div class="card-head">
+          <h2>Result</h2>
+          <span class="card-meta" id="row-count"></span>
+        </div>
+        <div class="card-body">
+          <div id="result">
+            <div class="empty-state">
+              <span class="ei">&#x1f4ca;</span>
+              Run a query to see results here
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card details-card">
+        <div class="card-head">
+          <h2>Details</h2>
+        </div>
+        <div class="card-body">
+          <pre id="details"></pre>
+        </div>
+      </div>
+    </main>
+
   </div>
-  <h3>Messages</h3>
-  <div id="messages"></div>
-  <label>Message</label>
-  <textarea id="message" rows="4" placeholder="Ask a question, SQL: SELECT ..., or PYTHON: result = ..."></textarea>
-  <button id="send">Send</button>
-  <div id="status"></div>
-  <h3>Result</h3>
-  <div id="result"></div>
-  <h3>Details</h3>
-  <pre id="details"></pre>
-  <script>
-    function randomThreadId() {
-      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
-      return 'thread-' + Math.random().toString(36).slice(2, 12);
-    }
+</div>
 
-    function ensureThreadId() {
-      let threadId = localStorage.getItem('csvAnalystThreadId');
-      if (!threadId) {
-        threadId = randomThreadId();
-        localStorage.setItem('csvAnalystThreadId', threadId);
-      }
-      window.threadId = threadId;
-      document.getElementById('thread-id').textContent = `Thread: ${threadId}`;
-    }
+<!-- ─── Script ──────────────────────────────────────────── -->
+<script>
+  // ─── Thread management ───────────────────────────────
+  function randomThreadId() {
+    return (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : 'thread-' + Math.random().toString(36).slice(2, 12);
+  }
 
-    function clearMessages() {
-      document.getElementById('messages').innerHTML = '';
-    }
+  function ensureThreadId() {
+    let id = localStorage.getItem('csvAnalystThreadId');
+    if (!id) { id = randomThreadId(); localStorage.setItem('csvAnalystThreadId', id); }
+    window.threadId = id;
+    document.getElementById('thread-id').textContent = 'Thread: ' + id;
+  }
 
-    function appendMessage(actor, text) {
-      const list = document.getElementById('messages');
-      const row = document.createElement('div');
-      row.className = `msg-row ${actor}`;
-      const bubble = document.createElement('div');
-      bubble.className = `msg-bubble ${actor}`;
-      bubble.textContent = text;
-      row.appendChild(bubble);
-      list.appendChild(row);
-      list.scrollTop = list.scrollHeight;
-    }
+  // ─── Status badge ─────────────────────────────────────
+  function setStatus(label, cls) {
+    document.getElementById('status').innerHTML = label
+      ? '<span class="status-badge ' + (cls || 'idle') + '">' + label + '</span>'
+      : '';
+  }
 
-    async function loadThreadHistory() {
-      if (!window.threadId) return;
-      const res = await fetch(`/threads/${window.threadId}/messages?limit=100`);
-      if (!res.ok) return;
-      const payload = await res.json();
-      clearMessages();
-      for (const msg of payload.messages || []) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          appendMessage(msg.role, msg.content || '');
-        }
+  // ─── Messages ─────────────────────────────────────────
+  function clearMessages() { document.getElementById('messages').innerHTML = ''; }
+
+  function appendMessage(actor, text) {
+    const list   = document.getElementById('messages');
+    const row    = document.createElement('div');
+    row.className = 'msg-row ' + actor;
+    const bubble = document.createElement('div');
+    bubble.className  = 'msg-bubble ' + actor;
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    list.appendChild(row);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  async function loadThreadHistory() {
+    if (!window.threadId) return;
+    const res = await fetch('/threads/' + window.threadId + '/messages?limit=100');
+    if (!res.ok) return;
+    const payload = await res.json();
+    clearMessages();
+    for (const msg of (payload.messages || [])) {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        appendMessage(msg.role, msg.content || '');
       }
     }
+  }
 
-    async function loadDatasets() {
-      const res = await fetch('/datasets');
-      const data = await res.json();
-      const sel = document.getElementById('dataset');
-      window.datasetMeta = {};
-      sel.innerHTML = '';
-      for (const ds of data.datasets) {
-        window.datasetMeta[ds.id] = ds;
-        const opt = document.createElement('option');
-        opt.value = ds.id;
-        opt.textContent = ds.id + ' - ' + ds.name;
-        sel.appendChild(opt);
-      }
-      renderPrompts();
+  // ─── Datasets & prompts ───────────────────────────────
+  async function loadDatasets() {
+    const res  = await fetch('/datasets');
+    const data = await res.json();
+    const sel  = document.getElementById('dataset');
+    window.datasetMeta = {};
+    sel.innerHTML = '';
+    for (const ds of data.datasets) {
+      window.datasetMeta[ds.id] = ds;
+      const opt = document.createElement('option');
+      opt.value       = ds.id;
+      opt.textContent = ds.id + ' \u2013 ' + ds.name;   // en-dash
+      sel.appendChild(opt);
+    }
+    renderPrompts();
+  }
+
+  function renderPrompts() {
+    const datasetId = document.getElementById('dataset').value;
+    const wrap      = document.getElementById('prompts');
+    wrap.innerHTML  = '';
+    const ds = window.datasetMeta && window.datasetMeta[datasetId];
+    if (!ds || !ds.prompts || !ds.prompts.length) return;
+
+    const lbl         = document.createElement('div');
+    lbl.className     = 'prompt-lbl';
+    lbl.textContent   = 'Suggested';
+    wrap.appendChild(lbl);
+
+    for (const p of ds.prompts.slice(0, 4)) {
+      const btn       = document.createElement('button');
+      btn.className   = 'prompt-btn';
+      btn.textContent = p;
+      btn.onclick     = () => { document.getElementById('message').value = p; };
+      wrap.appendChild(btn);
+    }
+  }
+
+  // ─── Table renderer ───────────────────────────────────
+  const MONEY_RE = /(revenue|price|amount|cost|total|sales|profit|discount)/i;
+
+  function fmtVal(col, v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v !== 'number')         return String(v);
+    if (Number.isInteger(v))           return v.toLocaleString();
+    if (MONEY_RE.test(String(col || '')))
+      return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const s = String(v);
+    if (s.includes('.') && s.split('.')[1].length > 6)
+      return v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+    return s;
+  }
+
+  function renderTable(columns, rows) {
+    if (!columns || !columns.length)
+      return '<div class="empty-state">No rows returned.</div>';
+
+    let h = '<table><thead><tr>';
+    for (const c of columns) h += '<th>' + c + '</th>';
+    h += '</tr></thead><tbody>';
+    for (const r of rows) {
+      h += '<tr>';
+      for (let i = 0; i < columns.length; i++)
+        h += '<td>' + fmtVal(columns[i], i < r.length ? r[i] : null) + '</td>';
+      h += '</tr>';
+    }
+    return h + '</tbody></table>';
+  }
+
+  // ─── Payload → UI ─────────────────────────────────────
+  function updateFromPayload(data) {
+    // Status badge
+    const st = (data.status || '').toLowerCase();
+    setStatus(st.charAt(0).toUpperCase() + st.slice(1), st);
+
+    // Assistant bubble
+    appendMessage('assistant', data.assistant_message || '');
+
+    // Result table + row-count badge
+    const resultEl = document.getElementById('result');
+    const rcEl     = document.getElementById('row-count');
+
+    if (data.result && data.result.error) {
+      resultEl.innerHTML = '<div class="empty-state err">' +
+        (data.result.error.message || 'Execution failed') + '</div>';
+      rcEl.textContent = '';
+    } else {
+      resultEl.innerHTML = renderTable(data.result.columns, data.result.rows);
+      const n = data.result.row_count || 0;
+      rcEl.textContent = n ? n.toLocaleString() + ' row' + (n !== 1 ? 's' : '') : '';
     }
 
-    function renderPrompts() {
-      const datasetId = document.getElementById('dataset').value;
-      const promptsWrap = document.getElementById('prompts');
-      promptsWrap.innerHTML = '';
-      const ds = window.datasetMeta && window.datasetMeta[datasetId];
-      if (!ds || !ds.prompts || ds.prompts.length === 0) return;
-      const label = document.createElement('div');
-      label.textContent = 'Suggested prompts:';
-      promptsWrap.appendChild(label);
-      for (const p of ds.prompts.slice(0, 4)) {
-        const btn = document.createElement('button');
-        btn.style.marginRight = '.5rem';
-        btn.style.marginBottom = '.5rem';
-        btn.textContent = p;
-        btn.onclick = () => { document.getElementById('message').value = p; };
-        promptsWrap.appendChild(btn);
-      }
-    }
+    // Details JSON
+    document.getElementById('details').textContent =
+      (data.details && Object.keys(data.details).length)
+        ? JSON.stringify(data.details, null, 2)
+        : '';
+  }
 
-    function renderTable(columns, rows) {
-      if (!columns || columns.length === 0) return '<em>No rows</em>';
-      function isMoneyColumn(colName) {
-        const c = String(colName || '').toLowerCase();
-        return /(revenue|price|amount|cost|total|sales|profit|discount)/.test(c);
-      }
-      function formatValue(colName, value) {
-        if (value === null || value === undefined) return '';
-        if (typeof value !== 'number') return String(value);
-        if (Number.isInteger(value)) return String(value);
-        if (isMoneyColumn(colName)) return value.toFixed(2);
-        const asText = String(value);
-        if (asText.includes('.') && asText.split('.')[1].length > 6) {
-          return value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-        }
-        return asText;
-      }
-      let html = '<table><thead><tr>';
-      for (const c of columns) html += `<th>${c}</th>`;
-      html += '</tr></thead><tbody>';
-      for (const r of rows) {
-        html += '<tr>';
-        for (let i = 0; i < columns.length; i++) {
-          const col = columns[i];
-          const v = i < r.length ? r[i] : null;
-          html += `<td>${formatValue(col, v)}</td>`;
-        }
-        html += '</tr>';
-      }
-      html += '</tbody></table>';
-      return html;
-    }
+  // ─── Send / SSE stream ────────────────────────────────
+  async function sendMessage() {
+    const msgEl   = document.getElementById('message');
+    const sendBtn = document.getElementById('send');
+    const message = msgEl.value;
+    if (!message.trim()) return;
 
-    function updateFromPayload(data) {
-      document.getElementById('status').textContent = `Status: ${data.status}`;
-      appendMessage('assistant', data.assistant_message || '');
-      document.getElementById('result').innerHTML = renderTable(data.result.columns, data.result.rows);
-      document.getElementById('details').textContent = JSON.stringify(data.details, null, 2);
-    }
+    appendMessage('user', message);
+    msgEl.value      = '';
+    sendBtn.disabled = true;
+    setStatus('Streaming', 'streaming');
 
-    document.getElementById('send').onclick = async () => {
-      const dataset_id = document.getElementById('dataset').value;
-      const message = document.getElementById('message').value;
-      if (!message.trim()) return;
-      appendMessage('user', message);
-      document.getElementById('message').value = '';
-      document.getElementById('status').textContent = 'Streaming...';
+    try {
       const res = await fetch('/chat/stream', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ dataset_id, message, thread_id: window.threadId }),
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          dataset_id: document.getElementById('dataset').value,
+          message,
+          thread_id:  window.threadId,
+        }),
       });
 
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let   buffer  = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -182,48 +693,66 @@
         buffer += decoder.decode(value, { stream: true });
 
         while (buffer.includes('\n\n')) {
-          const idx = buffer.indexOf('\n\n');
+          const idx   = buffer.indexOf('\n\n');
           const chunk = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
+          buffer      = buffer.slice(idx + 2);
 
-          let eventName = '';
-          let eventData = '';
+          let eventName = '', eventData = '';
           for (const line of chunk.split('\n')) {
             if (line.startsWith('event: ')) eventName = line.slice(7).trim();
-            if (line.startsWith('data: ')) eventData = line.slice(6).trim();
+            if (line.startsWith('data: '))  eventData = line.slice(6).trim();
           }
           if (!eventName || !eventData) continue;
           const parsed = JSON.parse(eventData);
 
           if (eventName === 'status') {
-            document.getElementById('status').textContent = `Stage: ${parsed.stage}`;
+            const stage = parsed.stage || '';
+            setStatus(stage.charAt(0).toUpperCase() + stage.slice(1), stage);
           } else if (eventName === 'result') {
             if (parsed.thread_id) {
               window.threadId = parsed.thread_id;
               localStorage.setItem('csvAnalystThreadId', window.threadId);
-              document.getElementById('thread-id').textContent = `Thread: ${window.threadId}`;
+              document.getElementById('thread-id').textContent = 'Thread: ' + window.threadId;
             }
             updateFromPayload(parsed);
           } else if (eventName === 'error') {
             appendMessage('assistant', parsed.message || 'Unknown error');
-            document.getElementById('status').textContent = `Error: ${parsed.message || 'unknown'}`;
+            setStatus('Error', 'error');
           }
         }
       }
-    };
+    } catch (err) {
+      appendMessage('assistant', 'Network error: ' + err.message);
+      setStatus('Error', 'error');
+    } finally {
+      sendBtn.disabled = false;
+    }
+  }
 
-    document.getElementById('dataset').onchange = renderPrompts;
-    document.getElementById('new-thread').onclick = async () => {
-      window.threadId = randomThreadId();
-      localStorage.setItem('csvAnalystThreadId', window.threadId);
-      document.getElementById('thread-id').textContent = `Thread: ${window.threadId}`;
-      clearMessages();
-      document.getElementById('status').textContent = 'New conversation started.';
-    };
+  // ─── Wiring ───────────────────────────────────────────
+  document.getElementById('send').addEventListener('click', sendMessage);
 
-    ensureThreadId();
-    loadDatasets();
-    loadThreadHistory();
-  </script>
+  document.getElementById('message').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  document.getElementById('dataset').addEventListener('change', renderPrompts);
+
+  document.getElementById('new-thread').addEventListener('click', function () {
+    window.threadId = randomThreadId();
+    localStorage.setItem('csvAnalystThreadId', window.threadId);
+    document.getElementById('thread-id').textContent = 'Thread: ' + window.threadId;
+    clearMessages();
+    setStatus('New conversation', 'succeeded');
+  });
+
+  // ─── Init ─────────────────────────────────────────────
+  ensureThreadId();
+  loadDatasets();
+  loadThreadHistory();
+</script>
 </body>
 </html>
