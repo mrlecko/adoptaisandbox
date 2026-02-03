@@ -19,11 +19,13 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 - ✅ QueryPlan DSL models and deterministic compiler
 - ✅ `agent-server/demo_query_plan.py` DSL demonstrations
 
-### Runner (Sandboxed SQL)
+### Runner (Sandboxed SQL + Python)
 - ✅ Hardened DuckDB runner (`runner/runner.py`, `runner/Dockerfile`)
 - ✅ CSV load/path/table-name hardening
 - ✅ Timeout classification (`RUNNER_TIMEOUT`)
 - ✅ Containerized integration tests (`tests/integration/test_runner_container.py`)
+- ✅ Python runner entrypoint in same image (`runner/runner_python.py`)
+- ✅ Python policy guardrails (AST allow/block checks + blocked builtins)
 
 ### Single-File Agent Server + UI
 - ✅ `agent-server/app/main.py` FastAPI server
@@ -38,6 +40,7 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 - ✅ SQL policy hardening:
   - denylist token word-boundary checks (fixes `created_at` false positive)
   - dataset-qualified table normalization for runner compatibility
+- ✅ Explicit Python chat mode (`PYTHON: ...`) wired to python runner entrypoint
 
 ## In Progress 🚧
 
@@ -59,10 +62,10 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 ```text
 tests/unit/test_query_plan.py               36 tests ✅
 tests/unit/test_compiler.py                 30 tests ✅
-tests/integration/test_agent_server_singlefile.py 11 tests ✅
-tests/integration/test_runner_container.py   7 tests ✅
+tests/integration/test_agent_server_singlefile.py 13 tests ✅
+tests/integration/test_runner_container.py   9 tests ✅
 -----------------------------------------------------
-TOTAL                                       84 tests ✅
+TOTAL                                       88 tests ✅
 ```
 
 ### Datasets
@@ -78,13 +81,14 @@ TOTAL         69,893 rows    5 files
 ## Runner Arrangement (Confirmed)
 
 - QueryPlan DSL remains upstream in agent-server.
-- Runner receives and executes SQL only.
-- This is the intended architecture for current scope.
+- Runner SQL path receives and executes SQL only.
+- Runner Python path executes explicit `PYTHON:` code in sandbox via separate entrypoint.
+- QueryPlan DSL remains upstream in agent-server.
 
 ## Next Milestones
 
 1. Tighten SQL policy validator and rejection messaging.
 2. Add more end-to-end tests per use-case prompt.
 3. Improve UI details panel and run inspection flow.
-4. Implement Python execution path (same runner image, separate entrypoint) per `PYTHON_EXECUTION_SPEC.md`.
+4. Add unit/security tests for python policy and output guards.
 5. Begin production-shape execution path (K8s + Helm).

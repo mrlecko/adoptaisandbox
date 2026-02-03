@@ -94,6 +94,48 @@ def _run_runner(payload: dict) -> tuple[int, dict, str]:
     return proc.returncode, response, proc.stderr.strip()
 
 
+def _run_runner_python(payload: dict) -> tuple[int, dict, str]:
+    """Execute Python runner entrypoint in same container image."""
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-i",
+        "--network",
+        "none",
+        "--read-only",
+        "--pids-limit",
+        "64",
+        "--memory",
+        "512m",
+        "--cpus",
+        "0.5",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,size=64m",
+        "-v",
+        f"{DATASETS_DIR}:/data:ro",
+        "--entrypoint",
+        "python3",
+        RUNNER_TEST_IMAGE,
+        "/app/runner_python.py",
+    ]
+    proc = subprocess.run(
+        cmd,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    stdout = proc.stdout.strip()
+    try:
+        response = json.loads(stdout) if stdout else {}
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"Python runner output is not valid JSON: {exc}; stdout={stdout!r}")
+
+    return proc.returncode, response, proc.stderr.strip()
+
+
 @pytest.mark.parametrize(
     ("name", "payload"),
     [
@@ -214,3 +256,40 @@ def test_runner_classifies_timeouts():
     assert response.get("status") == "timeout"
     assert response.get("error", {}).get("type") == "RUNNER_TIMEOUT"
     assert response.get("exec_time_ms", 0) >= 900
+
+
+def test_python_runner_executes_dataframe_code():
+    payload = {
+        "dataset_id": "support",
+        "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+        "python_code": (
+            "result_df = tickets.groupby('priority').size().reset_index(name='ticket_count')"
+            ".sort_values('ticket_count', ascending=False)"
+        ),
+        "timeout_seconds": 10,
+        "max_rows": 10,
+        "max_output_bytes": 65536,
+    }
+    return_code, response, stderr = _run_runner_python(payload)
+
+    assert return_code == 0, f"python runner failed: stderr={stderr}, response={response}"
+    assert response.get("status") == "success"
+    assert response.get("row_count", 0) > 0
+    assert "priority" in response.get("columns", [])
+    assert "ticket_count" in response.get("columns", [])
+
+
+def test_python_runner_blocks_dangerous_imports():
+    payload = {
+        "dataset_id": "support",
+        "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+        "python_code": "import os\nresult = 1",
+        "timeout_seconds": 10,
+        "max_rows": 10,
+        "max_output_bytes": 65536,
+    }
+    return_code, response, _ = _run_runner_python(payload)
+
+    assert return_code != 0
+    assert response.get("status") == "error"
+    assert response.get("error", {}).get("type") == "PYTHON_POLICY_VIOLATION"

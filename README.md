@@ -15,6 +15,7 @@ Implemented now:
 - ✅ Makefile now enforces `agent-server/.venv` for server/test commands
 - ✅ LLM structured-output hardening (dict output coercion + SQL rescue pass)
 - ✅ SQL policy hardening (word-boundary denylist + dataset-qualified table normalization)
+- ✅ Python sandbox execution mode in same runner image via separate entrypoint (`runner/runner_python.py`)
 
 In progress:
 - 🚧 Stronger SQL policy coverage and red-team scenarios
@@ -84,6 +85,11 @@ Then open `http://localhost:8000`.
 - `GET /runs/{run_id}`
 - `GET /` (minimal static UI)
 
+Message modes:
+- Natural language (default planning path)
+- `SQL: ...` for explicit SQL execution
+- `PYTHON: ...` for explicit Python sandbox execution (feature-flagged by `ENABLE_PYTHON_EXECUTION`)
+
 ## Testing
 
 ```bash
@@ -99,9 +105,9 @@ make test-runner
 
 Current validated counts:
 - `66` unit tests (QueryPlan/compiler)
-- `11` single-file server integration tests
-- `7` runner integration tests
-- `84` total in this validated suite
+- `13` single-file server integration tests
+- `9` runner integration tests
+- `88` total in this validated suite
 
 ## Make Targets You’ll Use Most
 
@@ -119,6 +125,7 @@ Defined in `.env.example`:
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
+- `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
 
 ## Project Structure
 

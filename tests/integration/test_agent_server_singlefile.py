@@ -19,7 +19,7 @@ def anyio_backend():
     return "asyncio"
 
 
-async def _make_client(tmp_path, runner_result=None):
+async def _make_client(tmp_path, runner_result=None, runner_executor=None, settings_overrides=None):
     datasets_dir = Path(__file__).parent.parent.parent / "datasets"
     db_path = tmp_path / "capsules.db"
 
@@ -31,6 +31,7 @@ async def _make_client(tmp_path, runner_result=None):
         run_timeout_seconds=5,
         max_rows=200,
         log_level="info",
+        **(settings_overrides or {}),
     )
 
     def fake_runner(*_, **__):
@@ -45,7 +46,7 @@ async def _make_client(tmp_path, runner_result=None):
             "error": None,
         }
 
-    app = create_app(settings=settings, runner_executor=fake_runner)
+    app = create_app(settings=settings, runner_executor=runner_executor or fake_runner)
     transport = httpx.ASGITransport(app=app)
     client = httpx.AsyncClient(transport=transport, base_url="http://test")
     return client
@@ -63,6 +64,7 @@ async def test_get_datasets_returns_registry_entries(tmp_path):
         assert ids == {"ecommerce", "support", "sensors"}
     finally:
         await client.aclose()
+
 
 @pytest.mark.anyio
 async def test_get_dataset_schema_returns_schema(tmp_path):
@@ -306,5 +308,73 @@ async def test_chat_stream_emits_status_and_result_events(tmp_path):
         assert "executing" in body
         assert "event: result" in body
         assert "event: done" in body
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_python_happy_path_uses_python_runner_mode(tmp_path):
+    captured = {}
+
+    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
+        captured["dataset_id"] = dataset["id"]
+        captured["sql"] = sql
+        captured["query_type"] = kwargs.get("query_type")
+        captured["python_code"] = kwargs.get("python_code")
+        return {
+            "status": "success",
+            "columns": ["n"],
+            "rows": [[7]],
+            "row_count": 1,
+            "exec_time_ms": 10,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "PYTHON: result = len(tickets)",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert payload["details"]["compiled_sql"] is None
+        assert payload["details"]["python_code"] == "result = len(tickets)"
+        run_id = payload["run_id"]
+        assert captured["dataset_id"] == "support"
+        assert captured["query_type"] == "python"
+        assert captured["python_code"] == "result = len(tickets)"
+        assert captured["sql"] == ""
+
+        run_response = await client.get(f"/runs/{run_id}")
+        assert run_response.status_code == 200
+        run_payload = run_response.json()
+        assert run_payload["python_code"] == "result = len(tickets)"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_python_rejected_when_feature_disabled(tmp_path):
+    client = await _make_client(tmp_path, settings_overrides={"enable_python_execution": False})
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "PYTHON: result = len(tickets)",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "rejected"
+        assert payload["result"]["error"]["type"] == "FEATURE_DISABLED"
     finally:
         await client.aclose()

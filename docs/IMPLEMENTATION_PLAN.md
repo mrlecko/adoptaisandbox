@@ -30,6 +30,8 @@ Implemented:
   - token boundary matching to avoid false positives
   - dataset-qualified table reference normalization
 - Python execution extension specification (`PYTHON_EXECUTION_SPEC.md`)
+- Python execution implemented in runner (same image, separate entrypoint)
+- Agent-server explicit Python mode (`PYTHON:`) integrated and tested
 
 Architecture note:
 - QueryPlan DSL is handled upstream in agent-server; runner receives validated SQL + dataset file references only.
@@ -45,7 +47,7 @@ Agent server usage today:
 Not yet implemented:
 - Production-grade SQL validator coverage (beyond current denylist baseline)
 - Full production deployment/runtime (K8s Job executor + Helm hardening)
-- Python execution in runner (same image, separate entrypoint) implementation
+- Python unit/security coverage expansion (policy/output edge cases)
 
 ---
 

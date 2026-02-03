@@ -22,10 +22,11 @@ RUN useradd -m -u 1000 -s /bin/bash runner
 RUN mkdir -p /app /data /tmp/duckdb && \
     chown -R runner:runner /app /tmp/duckdb
 
-# Copy runner script
+# Copy runner scripts
 COPY runner.py /app/runner.py
-RUN chmod +x /app/runner.py && \
-    chown runner:runner /app/runner.py
+COPY runner_python.py /app/runner_python.py
+RUN chmod +x /app/runner.py /app/runner_python.py && \
+    chown runner:runner /app/runner.py /app/runner_python.py
 
 # Switch to non-root user
 USER runner

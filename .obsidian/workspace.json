@@ -200,8 +200,9 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
-    "PYTHON_EXECUTION_SPEC.md",
     "agent-server/capsules.db-journal",
+    "runner/runner_python.py",
+    "PYTHON_EXECUTION_SPEC.md",
     "agent-server/app/__pycache__/main.cpython-311.pyc.133985399984112",
     "tests/integration/__pycache__/test_agent_server_singlefile.cpython-311-pytest-7.4.4.pyc",
     "tests/integration/__pycache__/test_agent_server_singlefile.cpython-310-pytest-8.4.2.pyc.80026",

@@ -24,9 +24,12 @@ The server compiles/validates upstream and sends SQL to runner.
 Runner input contract (stdin JSON):
 - `dataset_id`
 - `files[]` (`name`, `/data/...` path)
-- `sql`
+- `query_type` (`sql|python`)
+- `sql` (when `query_type=sql`)
+- `python_code` (when `query_type=python`)
 - `timeout_seconds`
 - `max_rows`
+- `max_output_bytes`
 
 Runner returns JSON result/error; server normalizes this into API responses and capsules.
 
@@ -44,6 +47,7 @@ Key vars:
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
+- `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
 
 ## Run Locally
 
@@ -65,6 +69,7 @@ Then open `http://localhost:8000`.
 Notes:
 - `make run-agent*` uses `agent-server/.venv/bin/uvicorn` (consistent runtime/deps).
 - If LLM structured output is non-executable, server attempts a SQL-rescue pass before safe fallback.
+- Explicit `PYTHON: ...` messages run in the sandbox python entrypoint when enabled.
 
 ## Tests
 

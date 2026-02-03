@@ -54,6 +54,8 @@ class Settings(BaseModel):
     runner_image: str = Field(default="csv-analyst-runner:test")
     run_timeout_seconds: int = Field(default=10)
     max_rows: int = Field(default=200)
+    max_output_bytes: int = Field(default=65536)
+    enable_python_execution: bool = Field(default=True)
     log_level: str = Field(default="info")
 
 
@@ -211,6 +213,7 @@ def _init_capsule_db(db_path: str) -> None:
               query_mode TEXT NOT NULL,
               plan_json TEXT,
               compiled_sql TEXT,
+              python_code TEXT,
               status TEXT NOT NULL,
               result_json TEXT,
               error_json TEXT,
@@ -218,6 +221,11 @@ def _init_capsule_db(db_path: str) -> None:
             )
             """
         )
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(run_capsules)").fetchall()
+        }
+        if "python_code" not in columns:
+            conn.execute("ALTER TABLE run_capsules ADD COLUMN python_code TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -230,9 +238,9 @@ def _insert_capsule(db_path: str, capsule: Dict[str, Any]) -> None:
             """
             INSERT INTO run_capsules (
               run_id, created_at, dataset_id, dataset_version_hash, question,
-              query_mode, plan_json, compiled_sql, status, result_json,
+              query_mode, plan_json, compiled_sql, python_code, status, result_json,
               error_json, exec_time_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 capsule["run_id"],
@@ -243,6 +251,7 @@ def _insert_capsule(db_path: str, capsule: Dict[str, Any]) -> None:
                 capsule["query_mode"],
                 json.dumps(capsule.get("plan_json")) if capsule.get("plan_json") is not None else None,
                 capsule.get("compiled_sql"),
+                capsule.get("python_code"),
                 capsule["status"],
                 json.dumps(capsule.get("result_json")) if capsule.get("result_json") is not None else None,
                 json.dumps(capsule.get("error_json")) if capsule.get("error_json") is not None else None,
@@ -279,6 +288,9 @@ def _default_runner_executor(
     sql: str,
     timeout_seconds: int,
     max_rows: int,
+    query_type: str = "sql",
+    python_code: Optional[str] = None,
+    max_output_bytes: int = 65536,
 ) -> Dict[str, Any]:
     files = []
     for entry in dataset.get("files", []):
@@ -292,10 +304,15 @@ def _default_runner_executor(
     payload = {
         "dataset_id": dataset["id"],
         "files": files,
-        "sql": sql,
+        "query_type": query_type,
         "timeout_seconds": timeout_seconds,
         "max_rows": max_rows,
+        "max_output_bytes": max_output_bytes,
     }
+    if query_type == "python":
+        payload["python_code"] = python_code or ""
+    else:
+        payload["sql"] = sql
 
     cmd = [
         "docker",
@@ -315,8 +332,12 @@ def _default_runner_executor(
         "/tmp:rw,noexec,nosuid,size=64m",
         "-v",
         f"{Path(settings.datasets_dir).resolve()}:/data:ro",
-        settings.runner_image,
     ]
+    if query_type == "python":
+        cmd.extend(["--entrypoint", "python3"])
+    cmd.append(settings.runner_image)
+    if query_type == "python":
+        cmd.append("/app/runner_python.py")
 
     proc = subprocess.run(
         cmd,
@@ -608,7 +629,7 @@ def _generate_sql_rescue_with_langchain(
 @dataclass
 class AppServices:
     settings: Settings
-    runner_executor: Callable[[Settings, Dict[str, Any], str, int, int], Dict[str, Any]]
+    runner_executor: Callable[..., Dict[str, Any]]
     compiler: QueryPlanCompiler
 
 
@@ -618,7 +639,7 @@ def _normalize_runner_to_status(result: Dict[str, Any]) -> Literal["succeeded", 
 
 def create_app(
     settings: Optional[Settings] = None,
-    runner_executor: Optional[Callable[[Settings, Dict[str, Any], str, int, int], Dict[str, Any]]] = None,
+    runner_executor: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> FastAPI:
     if load_dotenv:
         repo_root = Path(__file__).resolve().parents[2]
@@ -636,6 +657,8 @@ def create_app(
         runner_image=os.getenv("RUNNER_IMAGE", "csv-analyst-runner:test"),
         run_timeout_seconds=int(os.getenv("RUN_TIMEOUT_SECONDS", "10")),
         max_rows=int(os.getenv("MAX_ROWS", "200")),
+        max_output_bytes=int(os.getenv("MAX_OUTPUT_BYTES", "65536")),
+        enable_python_execution=os.getenv("ENABLE_PYTHON_EXECUTION", "true").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "info"),
     )
 
@@ -661,13 +684,63 @@ def create_app(
 
         status_cb("planning")
         explicit_sql = request.message.strip().lower().startswith("sql:")
+        explicit_python = request.message.strip().lower().startswith("python:")
 
-        query_mode: Literal["sql", "plan"] = "sql" if explicit_sql else "plan"
+        query_mode: Literal["sql", "plan", "python"] = "sql" if explicit_sql else "plan"
         assistant_message = "Executed query."
         plan_json = None
         compiled_sql = None
+        python_code = None
 
-        if explicit_sql:
+        if explicit_python:
+            if not services.settings.enable_python_execution:
+                result = {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {
+                        "type": "FEATURE_DISABLED",
+                        "message": "Python execution mode is disabled.",
+                    },
+                }
+                response = ChatResponse(
+                    assistant_message="Query rejected: Python execution is disabled.",
+                    run_id=run_id,
+                    status="rejected",
+                    result=result,
+                    details={
+                        "dataset_id": request.dataset_id,
+                        "query_mode": "python",
+                        "plan_json": None,
+                        "compiled_sql": None,
+                        "python_code": None,
+                    },
+                )
+                _insert_capsule(
+                    services.settings.capsule_db_path,
+                    {
+                        "run_id": run_id,
+                        "created_at": _utc_now_iso(),
+                        "dataset_id": request.dataset_id,
+                        "dataset_version_hash": dataset.get("version_hash"),
+                        "question": request.message,
+                        "query_mode": "python",
+                        "plan_json": None,
+                        "compiled_sql": None,
+                        "python_code": None,
+                        "status": response.status,
+                        "result_json": response.result,
+                        "error_json": response.result.get("error"),
+                        "exec_time_ms": 0,
+                    },
+                )
+                return response
+            query_mode = "python"
+            python_code = request.message.split(":", 1)[1].strip()
+            sql = ""
+            assistant_message = "Executed Python analysis."
+        elif explicit_sql:
             sql = request.message.split(":", 1)[1].strip()
         else:
             raw_draft = _generate_with_langchain(
@@ -711,51 +784,56 @@ def create_app(
                     sql = compiled_sql
                     assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
 
-        sql = _normalize_sql_for_dataset(sql, request.dataset_id)
+        if query_mode != "python":
+            sql = _normalize_sql_for_dataset(sql, request.dataset_id)
 
-        status_cb("validating")
-        sql_policy_error = _validate_sql_policy(sql)
-        if sql_policy_error:
-            result = {
-                "columns": [],
-                "rows": [],
-                "row_count": 0,
-                "exec_time_ms": 0,
-                "error": {
-                    "type": "SQL_POLICY_VIOLATION",
-                    "message": sql_policy_error,
-                },
-            }
-            response = ChatResponse(
-                assistant_message="Query rejected by SQL policy.",
-                run_id=run_id,
-                status="rejected",
-                result=result,
-                details={
-                    "dataset_id": request.dataset_id,
-                    "query_mode": query_mode,
-                    "plan_json": plan_json,
-                    "compiled_sql": compiled_sql or sql,
-                },
-            )
-            _insert_capsule(
-                services.settings.capsule_db_path,
-                {
-                    "run_id": run_id,
-                    "created_at": _utc_now_iso(),
-                    "dataset_id": request.dataset_id,
-                    "dataset_version_hash": dataset.get("version_hash"),
-                    "question": request.message,
-                    "query_mode": query_mode,
-                    "plan_json": plan_json,
-                    "compiled_sql": compiled_sql or sql,
-                    "status": response.status,
-                    "result_json": response.result,
-                    "error_json": response.result.get("error"),
+            status_cb("validating")
+            sql_policy_error = _validate_sql_policy(sql)
+            if sql_policy_error:
+                result = {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
                     "exec_time_ms": 0,
-                },
-            )
-            return response
+                    "error": {
+                        "type": "SQL_POLICY_VIOLATION",
+                        "message": sql_policy_error,
+                    },
+                }
+                response = ChatResponse(
+                    assistant_message="Query rejected by SQL policy.",
+                    run_id=run_id,
+                    status="rejected",
+                    result=result,
+                    details={
+                        "dataset_id": request.dataset_id,
+                        "query_mode": query_mode,
+                        "plan_json": plan_json,
+                        "compiled_sql": compiled_sql or sql,
+                        "python_code": python_code,
+                    },
+                )
+                _insert_capsule(
+                    services.settings.capsule_db_path,
+                    {
+                        "run_id": run_id,
+                        "created_at": _utc_now_iso(),
+                        "dataset_id": request.dataset_id,
+                        "dataset_version_hash": dataset.get("version_hash"),
+                        "question": request.message,
+                        "query_mode": query_mode,
+                        "plan_json": plan_json,
+                        "compiled_sql": compiled_sql or sql,
+                        "python_code": python_code,
+                        "status": response.status,
+                        "result_json": response.result,
+                        "error_json": response.result.get("error"),
+                        "exec_time_ms": 0,
+                    },
+                )
+                return response
+        else:
+            status_cb("validating")
 
         status_cb("executing")
         runner_result = services.runner_executor(
@@ -764,6 +842,9 @@ def create_app(
             sql,
             services.settings.run_timeout_seconds,
             services.settings.max_rows,
+            query_type=query_mode,
+            python_code=python_code,
+            max_output_bytes=services.settings.max_output_bytes,
         )
 
         response_status = _normalize_runner_to_status(runner_result)
@@ -782,7 +863,8 @@ def create_app(
                 "dataset_id": request.dataset_id,
                 "query_mode": query_mode,
                 "plan_json": plan_json,
-                "compiled_sql": compiled_sql or sql,
+                "compiled_sql": compiled_sql or sql if query_mode != "python" else None,
+                "python_code": python_code,
             },
         )
 
@@ -796,7 +878,8 @@ def create_app(
                 "question": request.message,
                 "query_mode": query_mode,
                 "plan_json": plan_json,
-                "compiled_sql": compiled_sql or sql,
+                "compiled_sql": compiled_sql or sql if query_mode != "python" else None,
+                "python_code": python_code,
                 "status": response.status,
                 "result_json": response.result,
                 "error_json": response.result.get("error"),
@@ -912,7 +995,7 @@ def create_app(
   <label>Dataset</label>
   <select id="dataset"></select>
   <label>Message</label>
-  <textarea id="message" rows="4" placeholder="Ask a question or use SQL: SELECT ..."></textarea>
+  <textarea id="message" rows="4" placeholder="Ask a question, SQL: SELECT ..., or PYTHON: result = ..."></textarea>
   <button id="send">Send</button>
   <div id="status"></div>
   <h3>Assistant</h3>

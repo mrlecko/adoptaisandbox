@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hardened runner Docker image (`runner/Dockerfile`)
 - Runner container integration tests (7 tests)
 - Make targets for runner validation: `build-runner-test`, `test-runner`
+- Python sandbox execution entrypoint in same image (`runner/runner_python.py`)
+- Runner python dependencies (`pandas`, `numpy`) and policy enforcement path
 
 **Single-File Agent Server (Phase 1.5, minimal first iteration)**:
 - Single-file FastAPI implementation (`agent-server/app/main.py`)
@@ -58,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent server run targets in Makefile: `run-agent`, `run-agent-dev`, `test-agent-server`
 - Server specification doc: `AGENT_SERVER_SPECIFICATION.md`
 - Python execution design spec: `PYTHON_EXECUTION_SPEC.md` (same runner image, separate entrypoint plan)
+- Explicit python chat mode (`PYTHON: ...`) wired to runner python entrypoint
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -70,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated root `.env.example` to include provider/runtime configuration for the single-file server
 - Updated Makefile to enforce `agent-server/.venv` for server and Python test targets (`agent-venv` bootstrap)
 - Updated TODO/docs status to include sequenced Phase 1 Python-execution implementation checklist
+- Updated docs with python runner usage, env vars, and revised test counts
 
 ### Deprecated
 - N/A
@@ -84,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LLM structured output compatibility issue where dict output caused attribute errors in chat flow
 - SQL policy false positive where `created_at` matched blocked token `create`
 - Dataset-qualified SQL table references (e.g., `support.tickets`) now normalize to runner-loaded table names
+- Agent server now supports explicit python execution mode and feature-flag rejection path
 
 ### Security
 - SQL injection prevention in QueryPlan compiler

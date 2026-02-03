@@ -208,35 +208,35 @@ _Reference: `PYTHON_EXECUTION_SPEC.md`_
 
 #### Sequenced implementation checklist (execute in this order)
 1. **Runner contract + feature flag**
-   - [ ] Add `query_type` (`sql|python`) to RunnerRequest
-   - [ ] Add `python_code` and `max_output_bytes` fields
-   - [ ] Add `ENABLE_PYTHON_EXECUTION` env toggle in agent-server
+   - [x] Add `query_type` (`sql|python`) to runner payload contract
+   - [x] Add `python_code` and `max_output_bytes` fields
+   - [x] Add `ENABLE_PYTHON_EXECUTION` env toggle in agent-server
 2. **Shared runner utilities**
    - [ ] Extract shared request/response/sanitization helpers into `runner/common.py`
-   - [ ] Keep SQL path behavior backward compatible
+   - [x] Keep SQL path behavior backward compatible
 3. **Python runner entrypoint**
-   - [ ] Create `runner/runner_python.py`
-   - [ ] Keep same image; use separate runtime entrypoint (`--entrypoint python3 /app/runner_python.py`)
-   - [ ] Load CSVs into `dfs` and table globals (`orders`, `tickets`, etc.)
+   - [x] Create `runner/runner_python.py`
+   - [x] Keep same image; use separate runtime entrypoint (`--entrypoint python3 /app/runner_python.py`)
+   - [x] Load CSVs into `dfs` and table globals (`orders`, `tickets`, etc.)
 4. **Python safety policy**
-   - [ ] Implement AST validation allowlist/blocklist
-   - [ ] Block `open`, `exec`, `eval`, `__import__`, subprocess/network/file-system modules
-   - [ ] Enforce deterministic rejection with `PYTHON_POLICY_VIOLATION`
+   - [x] Implement AST validation allowlist/blocklist
+   - [x] Block `open`, `exec`, `eval`, `__import__`, subprocess/network/file-system modules
+   - [x] Enforce deterministic rejection with `PYTHON_POLICY_VIOLATION`
 5. **Python result normalization**
-   - [ ] Support `result_df`, `result_rows` (+ optional `result_columns`), and scalar/list `result`
-   - [ ] Enforce `max_rows` and `max_output_bytes`
-   - [ ] Map runtime failures to standardized errors (`PYTHON_EXECUTION_ERROR`, `RUNNER_TIMEOUT`, etc.)
+   - [x] Support `result_df`, `result_rows` (+ optional `result_columns`), and scalar/list `result`
+   - [x] Enforce `max_rows` and `max_output_bytes`
+   - [x] Map runtime failures to standardized errors (`PYTHON_EXECUTION_ERROR`, `RUNNER_TIMEOUT`, etc.)
 6. **Agent-server integration**
-   - [ ] Add `execute_python(dataset_id, python_code)` tool path
-   - [ ] Extend chat flow for explicit Python requests (no automatic NL->Python in first cut)
-   - [ ] Persist `query_type` + `python_code` in run capsules
+   - [~] Add `execute_python(dataset_id, python_code)` tool path
+   - [x] Extend chat flow for explicit Python requests (no automatic NL->Python in first cut)
+   - [~] Persist `query_type` + `python_code` in run capsules
 7. **UI + streaming**
-   - [ ] Show `query_type` in details panel
-   - [ ] Render Python code when query_type is python
-   - [ ] Keep streaming stage flow unchanged (`planning`, `validating`, `executing`, `result`, `done`)
+   - [x] Show `query_type` in details panel
+   - [x] Render Python code when query_type is python
+   - [x] Keep streaming stage flow unchanged (`planning`, `validating`, `executing`, `result`, `done`)
 8. **TDD gates**
    - [ ] Unit tests: AST policy, request validation, result normalization
-   - [ ] Integration tests: python happy path, blocked import, timeout, output limits
+   - [~] Integration tests: python happy path, blocked import, timeout, output limits
    - [ ] Security tests: subprocess/network/file access attempts rejected
 
 **Deliverable:** Python sandbox execution available via same runner image with separate entrypoint, without regressing SQL mode.

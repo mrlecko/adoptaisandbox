@@ -3,4 +3,6 @@
 # Core SQL engine
 duckdb==0.10.0
 
-# No other dependencies needed - keep attack surface minimal
+# Python execution mode dependencies
+pandas==2.2.2
+numpy==1.26.4
