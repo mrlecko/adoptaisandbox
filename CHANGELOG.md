@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make targets for runner validation: `build-runner-test`, `test-runner`
 - Python sandbox execution entrypoint in same image (`runner/runner_python.py`)
 - Runner python dependencies (`pandas`, `numpy`) and policy enforcement path
+- Shared runner utilities module (`runner/common.py`) for path/table sanitization and response model
+- Network-egress integration test for runner container hardening (`--network none`)
 
 **Single-File Agent Server (Phase 1.5, minimal first iteration)**:
 - Single-file FastAPI implementation (`agent-server/app/main.py`)
@@ -62,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python execution design spec: `PYTHON_EXECUTION_SPEC.md` (same runner image, separate entrypoint plan)
 - Explicit python chat mode (`PYTHON: ...`) wired to runner python entrypoint
 - Implicit python-intent routing for prompts like "use pandas ..." with LLM generation + heuristic fallback
+- Executor layer modules (`agent-server/app/executors`) with `Executor` interface and `DockerExecutor`
+- Direct run APIs (`POST /runs`, `GET /runs/{run_id}/status`)
+- DockerExecutor integration tests (`tests/integration/test_docker_executor_integration.py`)
+- Expanded python policy/security coverage (subprocess/network/file import/call rejection tests)
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -75,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated Makefile to enforce `agent-server/.venv` for server and Python test targets (`agent-venv` bootstrap)
 - Updated TODO/docs status to include sequenced Phase 1 Python-execution implementation checklist
 - Updated docs with python runner usage, env vars, and revised test counts
+- Updated TODO/implementation docs to mark Phase 0 complete and Phase 1 complete except stretch AST parser
+- Updated `make test-runner` to always use `agent-server/.venv` and include DockerExecutor integration tests
 
 ### Deprecated
 - N/A
@@ -90,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQL policy false positive where `created_at` matched blocked token `create`
 - Dataset-qualified SQL table references (e.g., `support.tickets`) now normalize to runner-loaded table names
 - Agent server now supports explicit python execution mode and feature-flag rejection path
+- DockerExecutor now handles docker SDK transport incompatibilities with CLI health-check fallback
 
 ### Security
 - SQL injection prevention in QueryPlan compiler

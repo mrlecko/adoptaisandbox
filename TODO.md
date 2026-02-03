@@ -25,16 +25,16 @@
 - [x] Create use case specifications (3 datasets)
 
 ### P0.2 Tech Stack Validation
-- [ ] Verify LangChain Agent UI starter compatibility
-- [ ] Test LangChain agent graph basics locally
+- [x] Verify LangChain Agent UI starter compatibility (decision: static in-app UI for MVP)
+- [x] Test LangChain agent graph basics locally (decision: classic single FastAPI + tools flow)
 - [x] Validate DuckDB for CSV querying
-- [ ] Confirm Docker SDK for Python (local runner)
-- [ ] Confirm Kubernetes Python client (K8s runner)
+- [x] Confirm Docker SDK for Python (local runner)
+- [x] Confirm Kubernetes Python client (K8s runner)
 
 ### P0.3 Environment Setup
 - [x] Define directory structure (/datasets, /agent-server, /runner, /ui, /helm, /tests)
 - [x] Create pyproject.toml / requirements.txt for agent server
-- [~] Create Dockerfile stubs (UI, agent-server, runner)
+- [x] Create Dockerfile stubs (UI, agent-server, runner)
 - [x] Create docker-compose.yml stub
 - [x] Create Makefile with targets (dev, smoke, clean, k8s-up, helm-install)
 
@@ -60,8 +60,8 @@
   - [x] sensors.csv (sensor_id, timestamp, location, temp, humidity, anomaly_flag)
   - [x] 6 demo prompts
 - [x] Implement dataset version hashing (SHA256 of CSVs)
-- [~] Create dataset loader utility
-- [ ] Write unit tests for dataset registry loader
+- [x] Create dataset loader utility
+- [x] Write unit tests for dataset registry loader
 
 **PRD Mapping:** Section 12, FR-D1-D3
 
@@ -88,15 +88,15 @@
 **PRD Mapping:** Section 9, FR-Q1-Q3
 
 ### P1.3 SQL Validation (FR-SQL1, FR-SQL2, FR-SQL3)
-- [~] Implement SQL policy validator
+- [x] Implement SQL policy validator
   - [x] Denylist: DROP, DELETE, INSERT, UPDATE, CREATE, ALTER, ATTACH, INSTALL, LOAD, PRAGMA, CALL, COPY, EXPORT
   - [x] Allowlist mode: SELECT, WITH
   - [x] Case-insensitive matching
   - [x] Prevent false positives from substring matches (e.g., `created_at` vs `create`)
   - [x] Normalize dataset-qualified table refs in SQL path (e.g., `support.tickets` -> `tickets`)
 - [ ] (Stretch) Implement SQL AST parser for stricter validation
-- [~] Write tests for SQL validator (allowed/forbidden queries)
-- [ ] Write "red team" test fixtures (injection attempts)
+- [x] Write tests for SQL validator (allowed/forbidden queries)
+- [x] Write "red team" test fixtures (injection attempts)
 
 **PRD Mapping:** FR-SQL1-SQL3, Section 15.3
 
@@ -117,28 +117,28 @@
   - [x] Handle errors gracefully
   - [x] Respect max_rows limit
 - [x] Test runner locally (docker run with test inputs)
-- [ ] Write unit tests for runner (mocked DuckDB)
+- [x] Write unit tests for runner (mocked DuckDB)
 
 **PRD Mapping:** Section 10, FR-X1-X4
 
 ### P1.5 Docker Executor (Local Mode) (Deployment-B)
-- [ ] Create `/agent-server/executors` module
-- [ ] Implement Executor interface (abstract class)
+- [x] Create `/agent-server/executors` module
+- [x] Implement Executor interface (abstract class)
   - Methods: submit_run(), get_status(), get_result(), cleanup()
-- [ ] Implement DockerExecutor
-  - [ ] Use Docker SDK for Python
-  - [ ] Create container with:
+- [x] Implement DockerExecutor
+  - [x] Use Docker SDK for Python
+  - [x] Create container with:
     - `--network none`
     - `--read-only`
     - `--pids-limit 64`
     - `--memory 512m --cpus 0.5`
     - `--tmpfs /tmp:rw,noexec,nosuid,size=64m`
     - Mount datasets read-only at /data
-  - [ ] Pass RunnerRequest JSON via stdin
-  - [ ] Collect RunnerResponse JSON from stdout
-  - [ ] Handle timeouts (kill container)
-  - [ ] Cleanup containers after completion
-- [ ] Write integration tests for DockerExecutor
+  - [x] Pass RunnerRequest JSON via stdin
+  - [x] Collect RunnerResponse JSON from stdout
+  - [x] Handle timeouts (kill container)
+  - [x] Cleanup containers after completion
+- [x] Write integration tests for DockerExecutor
 
 **PRD Mapping:** Deployment-B, FR-X2-X4
 
@@ -148,8 +148,8 @@
 - [x] Implement dataset endpoints
   - [x] GET /datasets (FR metadata)
   - [x] GET /datasets/{id}/schema
-- [~] Implement LangChain agent graph
-  - [ ] Define agent tools:
+- [x] Implement LangChain agent graph
+  - [x] Define agent tools:
     - list_datasets()
     - get_dataset_schema(dataset_id)
     - execute_query_plan(dataset_id, plan_json)
@@ -163,39 +163,39 @@
   - [x] Validate plan/SQL
   - [x] Submit to executor
   - [x] Return assistant message + run status + result
-- [~] Implement /runs endpoints
-  - [ ] POST /runs (submit plan/SQL)
+- [x] Implement /runs endpoints
+  - [x] POST /runs (submit plan/SQL)
   - [x] GET /runs/{run_id} (fetch capsule)
 - [x] Add health endpoint (/healthz)
-- [~] Add structured logging (JSON logs)
+- [x] Add structured logging (JSON logs)
 
 **PRD Mapping:** Section 7, 13, FR-A1-A3
 
 ### P1.7 Run Capsule Storage (FR-R1-R3)
-- [~] Design run_capsules table schema (SQLite)
+- [x] Design run_capsules table schema (SQLite)
   - Fields: run_id, timestamp, dataset_id, dataset_version_hash, question, plan_json, compiled_sql, runner_mode, resource_limits, result_preview, stats, stdout, stderr, status, error
 - [x] Implement capsule persistence layer
 - [x] Implement capsule retrieval by run_id
-- [ ] Add indexing for efficient lookups
-- [~] Write unit tests for capsule CRUD
+- [x] Add indexing for efficient lookups
+- [x] Write unit tests for capsule CRUD
 
 **PRD Mapping:** FR-R1-R3, Section 14.2
 
 ### P1.8 UI Integration (FR-UI1-UI3)
 _Note: MVP currently uses static UI served by FastAPI (`GET /`) instead of LangChain Agent UI starter._
 
-- [ ] Clone/set up LangChain Agent UI starter
+- [x] Clone/set up LangChain Agent UI starter (replaced by static UI in same app for MVP)
 - [x] Configure UI to talk to agent server
-- [ ] Add dataset selection dropdown
+- [x] Add dataset selection dropdown
   - [x] Fetch datasets from GET /datasets
-  - [ ] Display suggested prompts per dataset
+  - [x] Display suggested prompts per dataset
 - [x] Add chat message input
 - [x] Display assistant responses (streaming if supported)
-- [~] Add "Show details" panel
-  - Query plan JSON (formatted)
-  - Compiled SQL (formatted)
-  - Execution stats/logs
-  - Result table preview
+- [x] Add "Show details" panel
+  - [x] Query plan JSON (formatted)
+  - [x] Compiled SQL (formatted)
+  - [x] Execution stats/logs
+  - [x] Result table preview
 - [x] Add run status indicators (Pending, Running, Succeeded, Failed, Rejected)
 - [x] Test end-to-end flow locally
 
@@ -212,7 +212,7 @@ _Reference: `PYTHON_EXECUTION_SPEC.md`_
    - [x] Add `python_code` and `max_output_bytes` fields
    - [x] Add `ENABLE_PYTHON_EXECUTION` env toggle in agent-server
 2. **Shared runner utilities**
-   - [ ] Extract shared request/response/sanitization helpers into `runner/common.py`
+   - [x] Extract shared request/response/sanitization helpers into `runner/common.py`
    - [x] Keep SQL path behavior backward compatible
 3. **Python runner entrypoint**
    - [x] Create `runner/runner_python.py`
@@ -227,17 +227,17 @@ _Reference: `PYTHON_EXECUTION_SPEC.md`_
    - [x] Enforce `max_rows` and `max_output_bytes`
    - [x] Map runtime failures to standardized errors (`PYTHON_EXECUTION_ERROR`, `RUNNER_TIMEOUT`, etc.)
 6. **Agent-server integration**
-   - [~] Add `execute_python(dataset_id, python_code)` tool path
+   - [x] Add `execute_python(dataset_id, python_code)` tool path
    - [x] Extend chat flow for explicit Python requests (no automatic NL->Python in first cut)
-   - [~] Persist `query_type` + `python_code` in run capsules
+   - [x] Persist `query_type` + `python_code` in run capsules
 7. **UI + streaming**
    - [x] Show `query_type` in details panel
    - [x] Render Python code when query_type is python
    - [x] Keep streaming stage flow unchanged (`planning`, `validating`, `executing`, `result`, `done`)
 8. **TDD gates**
-   - [ ] Unit tests: AST policy, request validation, result normalization
-   - [~] Integration tests: python happy path, blocked import, timeout, output limits
-   - [ ] Security tests: subprocess/network/file access attempts rejected
+   - [x] Unit tests: AST policy, request validation, result normalization
+   - [x] Integration tests: python happy path, blocked import, timeout, output limits
+   - [x] Security tests: subprocess/network/file access attempts rejected
 
 **Deliverable:** Python sandbox execution available via same runner image with separate entrypoint, without regressing SQL mode.
 

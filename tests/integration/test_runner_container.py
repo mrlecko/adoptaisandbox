@@ -293,3 +293,68 @@ def test_python_runner_blocks_dangerous_imports():
     assert return_code != 0
     assert response.get("status") == "error"
     assert response.get("error", {}).get("type") == "PYTHON_POLICY_VIOLATION"
+
+
+def test_python_runner_classifies_timeouts():
+    payload = {
+        "dataset_id": "support",
+        "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+        "python_code": "while True:\n    pass",
+        "timeout_seconds": 1,
+        "max_rows": 10,
+        "max_output_bytes": 65536,
+    }
+    return_code, response, _ = _run_runner_python(payload)
+
+    assert return_code != 0
+    assert response.get("status") == "timeout"
+    assert response.get("error", {}).get("type") == "RUNNER_TIMEOUT"
+
+
+def test_python_runner_enforces_output_byte_limit():
+    payload = {
+        "dataset_id": "support",
+        "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+        "python_code": "result_rows = [[str(i) * 200] for i in range(100)]\nresult_columns = ['big']",
+        "timeout_seconds": 10,
+        "max_rows": 100,
+        "max_output_bytes": 2048,
+    }
+    return_code, response, _ = _run_runner_python(payload)
+
+    assert return_code == 0
+    assert response.get("status") == "success"
+    assert response.get("row_count", 0) < 100
+
+
+def test_runner_container_blocks_network_egress():
+    """Container runtime should block outbound networking with --network none."""
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--entrypoint",
+        "python3",
+        RUNNER_TEST_IMAGE,
+        "-c",
+        (
+            "import socket,sys;"
+            "s=socket.socket();"
+            "s.settimeout(1);"
+            "ok=False\n"
+            "try:\n"
+            " s.connect(('1.1.1.1',53)); ok=True\n"
+            "except Exception:\n"
+            " ok=False\n"
+            "sys.exit(1 if ok else 0)"
+        ),
+    ]
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"network egress unexpectedly available: {proc.stderr}"

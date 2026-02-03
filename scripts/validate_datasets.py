@@ -143,7 +143,7 @@ def validate_sensors():
         # Check anomaly consistency
         if reading["anomaly_type"] and reading["anomaly_type"] != "":
             if reading["anomaly_flag"] != "True":
-                errors.append(f"Anomaly type set but flag is False")
+                errors.append("Anomaly type set but flag is False")
 
     if errors:
         print(f"  ❌ Found {len(errors)} errors (sampled 1000 rows):")

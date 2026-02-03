@@ -91,6 +91,7 @@ async def test_home_serves_static_ui(tmp_path):
         assert "CSV Analyst Chat (Minimal)" in body
         assert "id=\"dataset\"" in body
         assert "/chat/stream" in body
+        assert "Suggested prompts:" in body
     finally:
         await client.aclose()
 
@@ -308,6 +309,90 @@ async def test_chat_stream_emits_status_and_result_events(tmp_path):
         assert "executing" in body
         assert "event: result" in body
         assert "event: done" in body
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_post_runs_sql_executes_and_persists(tmp_path):
+    client = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/runs",
+            json={
+                "dataset_id": "support",
+                "query_type": "sql",
+                "sql": "SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "sql"
+        run_id = payload["run_id"]
+
+        run_response = await client.get(f"/runs/{run_id}")
+        assert run_response.status_code == 200
+        run_payload = run_response.json()
+        assert run_payload["query_mode"] == "sql"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_get_run_status_endpoint(tmp_path):
+    client = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "SQL: SELECT COUNT(*) AS n FROM tickets"},
+        )
+        run_id = response.json()["run_id"]
+        status_response = await client.get(f"/runs/{run_id}/status")
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "succeeded"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_post_runs_python_executes_and_persists_python_code(tmp_path):
+    captured = {}
+
+    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
+        captured["query_type"] = kwargs.get("query_type")
+        captured["python_code"] = kwargs.get("python_code")
+        return {
+            "status": "success",
+            "columns": ["value"],
+            "rows": [[1]],
+            "row_count": 1,
+            "exec_time_ms": 9,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/runs",
+            json={
+                "dataset_id": "support",
+                "query_type": "python",
+                "python_code": "result = 1",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert captured["query_type"] == "python"
+        assert captured["python_code"] == "result = 1"
+
+        run_id = payload["run_id"]
+        run_payload = (await client.get(f"/runs/{run_id}")).json()
+        assert run_payload["python_code"] == "result = 1"
     finally:
         await client.aclose()
 

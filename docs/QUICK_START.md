@@ -82,5 +82,5 @@ make test-unit
 ## Notes
 
 - QueryPlan DSL is handled in agent-server (`demo_query_plan.py` + compiler).
-- Runner executes SQL only; it does not parse QueryPlan JSON.
+- Runner executes SQL and restricted Python (separate entrypoints in the same image); it does not parse QueryPlan JSON.
 - Streaming endpoint is `POST /chat/stream` and the static UI consumes it.

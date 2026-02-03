@@ -13,19 +13,21 @@ import signal
 import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+try:  # container/runtime path
+    from common import RunnerResponse, sanitize_data_path, sanitize_table_name
+except ImportError:  # test/import path
+    from runner.common import RunnerResponse, sanitize_data_path, sanitize_table_name
 
 
 class TimeoutError(Exception):
     """Raised when code execution exceeds timeout."""
 
 
-TABLE_NAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
-DATA_ROOT = Path("/data")
 MAX_STDIO_BYTES = 65536
 
 ALLOWED_IMPORTS = {
@@ -48,31 +50,6 @@ BLOCKED_MODULES = {
 }
 BLOCKED_CALLS = {"open", "exec", "eval", "compile", "__import__", "input"}
 
-
-def sanitize_table_name(filename: str) -> str:
-    table_name = Path(filename).stem
-    import re
-
-    if not re.fullmatch(TABLE_NAME_PATTERN, table_name):
-        raise ValueError(f"Invalid table name derived from filename: {filename}")
-    return table_name
-
-
-def sanitize_data_path(path_value: str) -> str:
-    candidate = Path(path_value)
-    if not candidate.is_absolute():
-        raise ValueError(f"CSV path must be absolute: {path_value}")
-
-    resolved = candidate.resolve()
-    data_root = DATA_ROOT.resolve()
-    if resolved != data_root and data_root not in resolved.parents:
-        raise ValueError(f"CSV path must be under {data_root}: {path_value}")
-    if not resolved.is_file():
-        raise ValueError(f"CSV file not found: {path_value}")
-
-    return str(resolved)
-
-
 class RunnerRequest:
     def __init__(self, data: Dict[str, Any]):
         self.dataset_id = data.get("dataset_id", "unknown")
@@ -94,34 +71,6 @@ class RunnerRequest:
         if self.max_output_bytes <= 1024 or self.max_output_bytes > 1_000_000:
             return "max_output_bytes must be between 1024 and 1000000"
         return None
-
-
-class RunnerResponse:
-    def __init__(self):
-        self.status = "success"
-        self.columns: List[str] = []
-        self.rows: List[List[Any]] = []
-        self.row_count = 0
-        self.exec_time_ms = 0
-        self.stdout_trunc = ""
-        self.stderr_trunc = ""
-        self.error = None
-
-    def to_json(self) -> str:
-        return json.dumps(
-            {
-                "status": self.status,
-                "columns": self.columns,
-                "rows": self.rows,
-                "row_count": self.row_count,
-                "exec_time_ms": self.exec_time_ms,
-                "stdout_trunc": self.stdout_trunc,
-                "stderr_trunc": self.stderr_trunc,
-                "error": self.error,
-            },
-            default=str,
-        )
-
 
 def validate_python_policy(code: str) -> Optional[str]:
     try:

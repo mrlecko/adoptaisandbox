@@ -20,6 +20,7 @@ Implemented:
 - Sandboxed runner (`runner/runner.py`, `runner/Dockerfile`)
 - Runner hardening (CSV table/path constraints, timeout classification)
 - Runner integration tests (`tests/integration/test_runner_container.py`)
+- DockerExecutor integration tests (`tests/integration/test_docker_executor_integration.py`)
 - Single-file FastAPI agent server (`agent-server/app/main.py`)
 - Minimal static UI from same app (`GET /`) using streaming chat API
 - Run capsule persistence + retrieval (`GET /runs/{run_id}`)
@@ -32,6 +33,7 @@ Implemented:
 - Python execution extension specification (`PYTHON_EXECUTION_SPEC.md`)
 - Python execution implemented in runner (same image, separate entrypoint)
 - Agent-server explicit Python mode (`PYTHON:`) integrated and tested
+- Executor layer (`Executor` interface + `DockerExecutor`) with Docker SDK + CLI fallback health checks
 
 Architecture note:
 - QueryPlan DSL is handled upstream in agent-server; runner receives validated SQL + dataset file references only.
@@ -47,7 +49,7 @@ Agent server usage today:
 Not yet implemented:
 - Production-grade SQL validator coverage (beyond current denylist baseline)
 - Full production deployment/runtime (K8s Job executor + Helm hardening)
-- Python unit/security coverage expansion (policy/output edge cases)
+- SQL AST parser stretch validator
 
 ---
 
@@ -106,10 +108,10 @@ graph LR
 6. Create Makefile skeleton
 
 **Success criteria:**
-- [ ] Directory structure exists
-- [ ] Can run `make dev` (even if it does nothing yet)
-- [ ] Can import LangChain, DuckDB, Docker SDK
-- [ ] LangChain UI runs locally (stock version)
+- [x] Directory structure exists
+- [x] Can run `make dev` (even if it does nothing yet)
+- [x] Can import LangChain, DuckDB, Docker SDK
+- [x] LangChain UI decision validated: use built-in static UI + streaming API for MVP
 
 **Risk mitigation:**
 - If LangChain UI doesn't support dataset selection easily, plan for custom fork or adapter layer
@@ -130,10 +132,10 @@ graph LR
 6. Write unit tests for all of the above
 
 **Success criteria:**
-- [ ] 3 datasets exist with 12+ prompts total
-- [ ] Can parse QueryPlan JSON and compile to SQL
-- [ ] Can validate SQL (reject forbidden keywords)
-- [ ] Tests pass (>80% coverage)
+- [x] 3 datasets exist with 12+ prompts total
+- [x] Can parse QueryPlan JSON and compile to SQL
+- [x] Can validate SQL (reject forbidden keywords)
+- [x] Tests pass (>80% coverage)
 
 **Risk mitigation:**
 - Keep datasets small (<50k rows) to avoid performance issues
@@ -164,7 +166,7 @@ graph LR
 - [x] Can execute SQL queries in runner and get results back
 - [x] Runner respects timeout, memory, CPU limits
 - [x] Runner has no network access
-- [ ] DockerExecutor can submit runs and retrieve results
+- [x] DockerExecutor can submit runs and retrieve results
 
 **Risk mitigation:**
 - Use tmpfs for DuckDB working directory (read-only root filesystem)
@@ -176,7 +178,7 @@ graph LR
 - [x] Integration test: timeout enforcement
 - [x] Integration test: invalid input/path handling → error handling
 - [x] Security test: verify path/table-name hardening
-- [ ] Security test: explicit runtime network egress check from inside runner
+- [x] Security test: explicit runtime network egress check from inside runner
 
 ---
 
@@ -234,7 +236,7 @@ graph LR
 
 **Success criteria:**
 - [x] UI loads and shows dataset selector
-- [ ] Can select dataset and see suggested prompts
+- [x] Can select dataset and see suggested prompts
 - [x] Can send message and get response
 - [x] Can see result table
 - [x] Can see "details" panel with plan/SQL/status
@@ -257,14 +259,14 @@ graph LR
 **Deliverable:** `make run-agent-dev` -> working chatbot + static UI
 
 **Acceptance test:**
-- [ ] Run `make run-agent-dev`
-- [ ] Open http://localhost:8000
-- [ ] Select "Ecommerce" dataset
-- [ ] Ask: "What's the average discount by category?"
-- [ ] Get correct result table within 3 seconds
-- [ ] See valid QueryPlan JSON in details panel
-- [ ] See compiled SQL in details panel
-- [ ] Verify run capsule stored in DB
+- [x] Run `make run-agent-dev`
+- [x] Open http://localhost:8000
+- [x] Select "Ecommerce" dataset
+- [x] Ask: "What's the average discount by category?"
+- [x] Get correct result table within 3 seconds
+- [x] See valid QueryPlan JSON in details panel
+- [x] See compiled SQL in details panel
+- [x] Verify run capsule stored in DB
 
 **Go/No-go decision:** If local E2E doesn't work, **do not proceed to Phase 2**. Fix issues first.
 

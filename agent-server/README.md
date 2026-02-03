@@ -10,7 +10,9 @@ Single-file FastAPI server for CSV Analyst Chat.
   - `GET /datasets/{dataset_id}/schema`
   - `POST /chat`
   - `POST /chat/stream` (SSE)
+  - `POST /runs`
   - `GET /runs/{run_id}`
+  - `GET /runs/{run_id}/status`
   - `GET /` (minimal static UI)
 - QueryPlan DSL + compiler live in:
   - `app/models/query_plan.py`
@@ -90,9 +92,8 @@ python3 demo_query_plan.py
 
 This demonstrates the DSL and deterministic SQL compilation path used by the server when plan mode is selected.
 
-## Forward Plan
+## Current Notes
 
-Python sandbox execution is specified in `PYTHON_EXECUTION_SPEC.md`:
-- same runner image
-- separate Python entrypoint
-- AST policy + output controls
+- Python sandbox execution is live behind `ENABLE_PYTHON_EXECUTION=true`.
+- `DockerExecutor` is implemented under `app/executors/` and validated with integration tests.
+- If Docker SDK transport fails in some environments, executor health-check falls back to Docker CLI.

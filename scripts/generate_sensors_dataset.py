@@ -285,7 +285,7 @@ def main():
     location_counts = {}
     for reading in readings:
         location_counts[reading["location"]] = location_counts.get(reading["location"], 0) + 1
-    print(f"  Readings per location:")
+    print("  Readings per location:")
     for loc, count in sorted(location_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
         print(f"    {loc}: {count}")
 

@@ -12,7 +12,7 @@ from pathlib import Path
 # Add agent-server to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "agent-server"))
 
-from app.models.query_plan import (
+from app.models.query_plan import (  # noqa: E402
     QueryPlan,
     Filter,
     FilterOperator,

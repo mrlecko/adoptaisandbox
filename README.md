@@ -7,7 +7,7 @@ LLM-assisted CSV analysis with sandboxed SQL execution.
 Implemented now:
 - ✅ Dataset generation + registry (`datasets/registry.json`)
 - ✅ QueryPlan DSL + deterministic compiler (`agent-server/demo_query_plan.py` flow)
-- ✅ Hardened runner container for SQL-only execution (`runner/runner.py`)
+- ✅ Hardened runner container for SQL + restricted Python execution (`runner/runner.py`, `runner/runner_python.py`)
 - ✅ Single-file FastAPI agent server (`agent-server/app/main.py`)
 - ✅ Minimal static UI served by the same FastAPI app (`GET /`)
 - ✅ Streaming chat endpoint (`POST /chat/stream`) and run capsule persistence (`SQLite`)
@@ -80,9 +80,11 @@ Then open `http://localhost:8000`.
 - `GET /healthz`
 - `GET /datasets`
 - `GET /datasets/{dataset_id}/schema`
+- `POST /runs`
+- `GET /runs/{run_id}`
+- `GET /runs/{run_id}/status`
 - `POST /chat`
 - `POST /chat/stream` (SSE)
-- `GET /runs/{run_id}`
 - `GET /` (minimal static UI)
 
 Message modes:
@@ -99,15 +101,16 @@ pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
 # Single-file server integration tests
 make test-agent-server
 
-# Runner container integration tests
+# Runner + DockerExecutor integration tests
 make test-runner
 ```
 
 Current validated counts:
-- `66` unit tests (QueryPlan/compiler)
-- `15` single-file server integration tests
-- `9` runner integration tests
-- `90` total in this validated suite
+- `91` unit tests
+- `18` single-file server integration tests
+- `14` runner + DockerExecutor integration tests
+- `6` security policy tests
+- `129` tests total (`115` pass + `14` Docker-dependent skips under plain `make test`)
 
 ## Make Targets You’ll Use Most
 

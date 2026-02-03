@@ -17,8 +17,6 @@ import sys
 import json
 import signal
 import time
-import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -33,39 +31,15 @@ except ImportError:
     }))
     sys.exit(1)
 
+try:  # container/runtime path
+    from common import RunnerResponse, sanitize_data_path, sanitize_table_name
+except ImportError:  # test/import path
+    from runner.common import RunnerResponse, sanitize_data_path, sanitize_table_name
+
 
 class TimeoutError(Exception):
     """Raised when query execution times out."""
     pass
-
-
-TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-DATA_ROOT = Path("/data")
-
-
-def sanitize_table_name(filename: str) -> str:
-    """Return a safe SQL table name derived from CSV filename."""
-    table_name = Path(filename).stem
-    if not TABLE_NAME_PATTERN.fullmatch(table_name):
-        raise ValueError(f"Invalid table name derived from filename: {filename}")
-    return table_name
-
-
-def sanitize_data_path(path_value: str) -> str:
-    """Ensure CSV path is absolute, under /data, and points to a file."""
-    candidate = Path(path_value)
-    if not candidate.is_absolute():
-        raise ValueError(f"CSV path must be absolute: {path_value}")
-
-    resolved = candidate.resolve()
-    data_root = DATA_ROOT.resolve()
-    if resolved != data_root and data_root not in resolved.parents:
-        raise ValueError(f"CSV path must be under {data_root}: {path_value}")
-    if not resolved.is_file():
-        raise ValueError(f"CSV file not found: {path_value}")
-
-    return str(resolved)
-
 
 def is_timeout_exception(exc: Exception, timed_out: bool, timeout_seconds: int, start_time: float) -> bool:
     """Best-effort timeout classification for interrupted DuckDB queries."""
@@ -111,47 +85,6 @@ class RunnerRequest:
         if self.max_rows <= 0 or self.max_rows > 1000:
             return "max_rows must be between 1 and 1000"
         return None
-
-
-class RunnerResponse:
-    """
-    Output response schema.
-
-    Written to stdout as JSON:
-    {
-        "status": "success",  # or "error", "timeout"
-        "columns": ["order_id", "total"],
-        "rows": [[1, 100.50], [2, 75.25]],
-        "row_count": 2,
-        "exec_time_ms": 45,
-        "stdout_trunc": "",
-        "stderr_trunc": "",
-        "error": null
-    }
-    """
-
-    def __init__(self):
-        self.status = "success"
-        self.columns = []
-        self.rows = []
-        self.row_count = 0
-        self.exec_time_ms = 0
-        self.stdout_trunc = ""
-        self.stderr_trunc = ""
-        self.error = None
-
-    def to_json(self) -> str:
-        """Serialize to JSON."""
-        return json.dumps({
-            "status": self.status,
-            "columns": self.columns,
-            "rows": self.rows,
-            "row_count": self.row_count,
-            "exec_time_ms": self.exec_time_ms,
-            "stdout_trunc": self.stdout_trunc,
-            "stderr_trunc": self.stderr_trunc,
-            "error": self.error
-        }, default=str)  # default=str handles any non-serializable types
 
 
 def load_csvs_into_duckdb(conn: duckdb.DuckDBPyConnection, files: List[Dict]) -> None:

@@ -1,13 +1,13 @@
 # Project Status Report
 
 **Last Updated**: 2026-02-03  
-**Current Phase**: Phase 1 - Foundations + Minimal Product Surface
+**Current Phase**: Phase 1 complete (stretch item deferred)
 
 ## Overall Progress
 
 ```text
 Phase 0: Bootstrap & Planning         ████████████████████ 100% ✅
-Phase 1: Foundations + Minimal UX     ████████████████░░░░  80% 🚧
+Phase 1: Foundations + Minimal UX     ████████████████████ 100% ✅
 Phase 2: Production Shape             ░░░░░░░░░░░░░░░░░░░░   0% ⏭️
 Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░░░░░░░   0% ⏭️
 ```
@@ -26,6 +26,7 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 - ✅ Containerized integration tests (`tests/integration/test_runner_container.py`)
 - ✅ Python runner entrypoint in same image (`runner/runner_python.py`)
 - ✅ Python policy guardrails (AST allow/block checks + blocked builtins)
+- ✅ Shared runner utilities module (`runner/common.py`)
 
 ### Single-File Agent Server + UI
 - ✅ `agent-server/app/main.py` FastAPI server
@@ -41,11 +42,16 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
   - denylist token word-boundary checks (fixes `created_at` false positive)
   - dataset-qualified table normalization for runner compatibility
 - ✅ Explicit Python chat mode (`PYTHON: ...`) wired to python runner entrypoint
+- ✅ `/runs` submission API + `/runs/{run_id}/status`
+
+### Executor Layer
+- ✅ Executor interface + DockerExecutor module
+- ✅ Docker SDK path with CLI fallback when SDK transport is unavailable
+- ✅ DockerExecutor integration tests (SQL and Python modes)
 
 ## In Progress 🚧
 
-- 🚧 Stronger SQL policy coverage and edge-case handling
-- 🚧 Additional end-to-end scenarios across all datasets
+- 🚧 Stretch: SQL AST parser for stricter validation
 - 🚧 UI polish and richer execution transparency UX
 
 ## Pending Components ⏭️
@@ -60,12 +66,12 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 ### Tests (validated today)
 
 ```text
-tests/unit/test_query_plan.py               36 tests ✅
-tests/unit/test_compiler.py                 30 tests ✅
-tests/integration/test_agent_server_singlefile.py 15 tests ✅
-tests/integration/test_runner_container.py   9 tests ✅
+Unit tests                                91 tests ✅
+Security tests                             6 tests ✅
+Agent-server integration                  18 tests ✅
+Runner + DockerExecutor integration       14 tests ✅
 -----------------------------------------------------
-TOTAL                                       90 tests ✅
+TOTAL                                    129 tests ✅
 ```
 
 ### Datasets
@@ -81,9 +87,8 @@ TOTAL         69,893 rows    5 files
 ## Runner Arrangement (Confirmed)
 
 - QueryPlan DSL remains upstream in agent-server.
-- Runner SQL path receives and executes SQL only.
+- Runner SQL path receives compiled SQL and executes inside sandbox.
 - Runner Python path executes explicit `PYTHON:` code in sandbox via separate entrypoint.
-- QueryPlan DSL remains upstream in agent-server.
 
 ## Next Milestones
 

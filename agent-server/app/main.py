@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -29,8 +28,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from .datasets import get_dataset_by_id, load_registry
 from .models.query_plan import QueryPlan, SelectColumn
+from .storage.capsules import get_capsule, init_capsule_db, insert_capsule
 from .validators.compiler import QueryPlanCompiler
+from .validators.sql_policy import normalize_sql_for_dataset, validate_sql_policy
 
 try:
     from dotenv import load_dotenv
@@ -81,6 +83,16 @@ class StreamRequest(ChatRequest):
     """Streaming request body (same as chat request)."""
 
 
+class RunSubmitRequest(BaseModel):
+    """Direct run submission endpoint payload."""
+
+    dataset_id: str
+    query_type: Literal["sql", "python", "plan"] = "sql"
+    sql: Optional[str] = None
+    python_code: Optional[str] = None
+    plan_json: Optional[Dict[str, Any]] = None
+
+
 class AgentDraft(BaseModel):
     """Structured output target for optional LLM query generation."""
 
@@ -124,43 +136,6 @@ class PythonDraft(BaseModel):
         return self
 
 
-SQL_BLOCKLIST = [
-    "drop",
-    "delete",
-    "insert",
-    "update",
-    "create",
-    "alter",
-    "attach",
-    "install",
-    "load",
-    "pragma",
-    "call",
-    "copy",
-    "export",
-]
-
-
-def _contains_blocked_sql_token(sql_lower: str, token: str) -> bool:
-    pattern = rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])"
-    return re.search(pattern, sql_lower) is not None
-
-
-def _normalize_sql_for_dataset(sql: str, dataset_id: str) -> str:
-    """Allow optional dataset-qualified table refs like support.tickets."""
-    normalized = re.sub(
-        rf'(?i)"{re.escape(dataset_id)}"\s*\.\s*',
-        "",
-        sql,
-    )
-    normalized = re.sub(
-        rf"(?i)\b{re.escape(dataset_id)}\s*\.\s*",
-        "",
-        normalized,
-    )
-    return normalized
-
-
 def _is_python_intent(message: str) -> bool:
     lowered = message.lower()
     python_markers = [
@@ -178,18 +153,17 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _log_event(event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    LOGGER.info(json.dumps(payload, default=str))
+
+
 def _load_registry(settings: Settings) -> Dict[str, Any]:
-    registry_path = Path(settings.datasets_dir) / "registry.json"
-    if not registry_path.exists():
-        raise FileNotFoundError(f"Dataset registry not found: {registry_path}")
-    return json.loads(registry_path.read_text())
+    return load_registry(settings.datasets_dir)
 
 
 def _dataset_by_id(registry: Dict[str, Any], dataset_id: str) -> Dict[str, Any]:
-    for ds in registry.get("datasets", []):
-        if ds["id"] == dataset_id:
-            return ds
-    raise KeyError(f"Unknown dataset_id: {dataset_id}")
+    return get_dataset_by_id(registry, dataset_id)
 
 
 def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -206,106 +180,23 @@ def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
 
 
 def _validate_sql_policy(sql: str) -> Optional[str]:
-    sql_clean = sql.strip()
-    lowered = sql_clean.lower()
+    return validate_sql_policy(sql)
 
-    if not (lowered.startswith("select") or lowered.startswith("with")):
-        return "Only SELECT/WITH queries are allowed."
 
-    # Reject multiple statements.
-    if ";" in sql_clean.rstrip(";"):
-        return "Multiple SQL statements are not allowed."
-
-    for token in SQL_BLOCKLIST:
-        if _contains_blocked_sql_token(lowered, token):
-            return f"SQL contains blocked token: {token}"
-
-    return None
+def _normalize_sql_for_dataset(sql: str, dataset_id: str) -> str:
+    return normalize_sql_for_dataset(sql, dataset_id)
 
 
 def _init_capsule_db(db_path: str) -> None:
-    path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS run_capsules (
-              run_id TEXT PRIMARY KEY,
-              created_at TEXT NOT NULL,
-              dataset_id TEXT NOT NULL,
-              dataset_version_hash TEXT,
-              question TEXT,
-              query_mode TEXT NOT NULL,
-              plan_json TEXT,
-              compiled_sql TEXT,
-              python_code TEXT,
-              status TEXT NOT NULL,
-              result_json TEXT,
-              error_json TEXT,
-              exec_time_ms INTEGER
-            )
-            """
-        )
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(run_capsules)").fetchall()
-        }
-        if "python_code" not in columns:
-            conn.execute("ALTER TABLE run_capsules ADD COLUMN python_code TEXT")
-        conn.commit()
-    finally:
-        conn.close()
+    init_capsule_db(db_path)
 
 
 def _insert_capsule(db_path: str, capsule: Dict[str, Any]) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            """
-            INSERT INTO run_capsules (
-              run_id, created_at, dataset_id, dataset_version_hash, question,
-              query_mode, plan_json, compiled_sql, python_code, status, result_json,
-              error_json, exec_time_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                capsule["run_id"],
-                capsule["created_at"],
-                capsule["dataset_id"],
-                capsule.get("dataset_version_hash"),
-                capsule.get("question"),
-                capsule["query_mode"],
-                json.dumps(capsule.get("plan_json")) if capsule.get("plan_json") is not None else None,
-                capsule.get("compiled_sql"),
-                capsule.get("python_code"),
-                capsule["status"],
-                json.dumps(capsule.get("result_json")) if capsule.get("result_json") is not None else None,
-                json.dumps(capsule.get("error_json")) if capsule.get("error_json") is not None else None,
-                capsule.get("exec_time_ms"),
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    insert_capsule(db_path, capsule)
 
 
 def _get_capsule(db_path: str, run_id: str) -> Optional[Dict[str, Any]]:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM run_capsules WHERE run_id = ?",
-            (run_id,),
-        ).fetchone()
-        if not row:
-            return None
-        data = dict(row)
-        for key in ("plan_json", "result_json", "error_json"):
-            if data.get(key):
-                data[key] = json.loads(data[key])
-        return data
-    finally:
-        conn.close()
+    return get_capsule(db_path, run_id)
 
 
 def _default_runner_executor(
@@ -845,6 +736,104 @@ def create_app(
         compiler=QueryPlanCompiler(),
     )
 
+    # Tool-style helpers used by chat flow and /runs endpoint.
+    def tool_list_datasets() -> Dict[str, Any]:
+        registry = _load_registry(app.state.services.settings)
+        return {
+            "datasets": [
+                {
+                    "id": ds["id"],
+                    "name": ds["name"],
+                    "description": ds.get("description"),
+                    "prompts": ds.get("prompts", []),
+                    "version_hash": ds.get("version_hash"),
+                }
+                for ds in registry.get("datasets", [])
+            ]
+        }
+
+    def tool_get_dataset_schema(dataset_id: str) -> Dict[str, Any]:
+        registry = _load_registry(app.state.services.settings)
+        ds = _dataset_by_id(registry, dataset_id)
+        files = []
+        for f in ds.get("files", []):
+            rel_path = f["path"]
+            abs_path = Path(app.state.services.settings.datasets_dir) / rel_path
+            files.append(
+                {
+                    "name": f["name"],
+                    "path": rel_path,
+                    "schema": f.get("schema", {}),
+                    "sample_rows": _sample_rows(abs_path, max_rows=3),
+                }
+            )
+        return {"id": ds["id"], "name": ds["name"], "files": files}
+
+    def tool_execute_sql(dataset: Dict[str, Any], sql: str) -> Dict[str, Any]:
+        sql = _normalize_sql_for_dataset(sql, dataset["id"])
+        policy_error = _validate_sql_policy(sql)
+        if policy_error:
+            return {
+                "status": "rejected",
+                "result": {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
+                },
+                "compiled_sql": sql,
+            }
+
+        runner_result = app.state.services.runner_executor(
+            app.state.services.settings,
+            dataset,
+            sql,
+            app.state.services.settings.run_timeout_seconds,
+            app.state.services.settings.max_rows,
+            query_type="sql",
+            python_code=None,
+            max_output_bytes=app.state.services.settings.max_output_bytes,
+        )
+        return {"status": _normalize_runner_to_status(runner_result), "result": runner_result, "compiled_sql": sql}
+
+    def tool_execute_query_plan(dataset: Dict[str, Any], plan_json: Dict[str, Any]) -> Dict[str, Any]:
+        plan = QueryPlan.model_validate(plan_json)
+        compiled_sql = app.state.services.compiler.compile(plan)
+        outcome = tool_execute_sql(dataset, compiled_sql)
+        outcome["plan_json"] = plan.model_dump()
+        return outcome
+
+    def tool_execute_python(dataset: Dict[str, Any], python_code: str) -> Dict[str, Any]:
+        if not app.state.services.settings.enable_python_execution:
+            return {
+                "status": "rejected",
+                "result": {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {"type": "FEATURE_DISABLED", "message": "Python execution mode is disabled."},
+                },
+            }
+        runner_result = app.state.services.runner_executor(
+            app.state.services.settings,
+            dataset,
+            "",
+            app.state.services.settings.run_timeout_seconds,
+            app.state.services.settings.max_rows,
+            query_type="python",
+            python_code=python_code,
+            max_output_bytes=app.state.services.settings.max_output_bytes,
+        )
+        return {"status": _normalize_runner_to_status(runner_result), "result": runner_result}
+
+    def tool_get_run_status(run_id: str) -> Dict[str, Any]:
+        capsule = _get_capsule(app.state.services.settings.capsule_db_path, run_id)
+        if not capsule:
+            return {"run_id": run_id, "status": "not_found"}
+        return {"run_id": run_id, "status": capsule.get("status")}
+
     def process_chat(
         request: ChatRequest,
         status_cb: Optional[Callable[[str], None]] = None,
@@ -854,6 +843,7 @@ def create_app(
         dataset = _dataset_by_id(registry, request.dataset_id)
         run_id = str(uuid.uuid4())
         status_cb = status_cb or (lambda *_: None)
+        _log_event("chat.request", run_id=run_id, dataset_id=request.dataset_id, message=request.message)
 
         status_cb("planning")
         explicit_sql = request.message.strip().lower().startswith("sql:")
@@ -909,6 +899,7 @@ def create_app(
                         "exec_time_ms": 0,
                     },
                 )
+                _log_event("chat.rejected", run_id=run_id, reason="python_disabled")
                 return response
             query_mode = "python"
             if explicit_python:
@@ -980,6 +971,7 @@ def create_app(
                                 "exec_time_ms": 0,
                             },
                         )
+                        _log_event("chat.rejected", run_id=run_id, reason="python_generation_failed")
                         return response
             sql = ""
         elif explicit_sql:
@@ -1073,6 +1065,7 @@ def create_app(
                         "exec_time_ms": 0,
                     },
                 )
+                _log_event("chat.rejected", run_id=run_id, reason="sql_policy")
                 return response
         else:
             status_cb("validating")
@@ -1128,6 +1121,7 @@ def create_app(
                 "exec_time_ms": response.result.get("exec_time_ms", 0),
             },
         )
+        _log_event("chat.completed", run_id=run_id, status=response.status, query_mode=query_mode)
         return response
 
     @app.get("/healthz")
@@ -1136,41 +1130,90 @@ def create_app(
 
     @app.get("/datasets")
     async def list_datasets():
-        registry = _load_registry(app.state.services.settings)
-        datasets = []
-        for ds in registry.get("datasets", []):
-            datasets.append(
-                {
-                    "id": ds["id"],
-                    "name": ds["name"],
-                    "description": ds.get("description"),
-                    "prompts": ds.get("prompts", []),
-                    "version_hash": ds.get("version_hash"),
-                }
-            )
-        return {"datasets": datasets}
+        return tool_list_datasets()
 
     @app.get("/datasets/{dataset_id}/schema")
     async def dataset_schema(dataset_id: str):
-        registry = _load_registry(app.state.services.settings)
         try:
-            ds = _dataset_by_id(registry, dataset_id)
+            return tool_get_dataset_schema(dataset_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        files = []
-        for f in ds.get("files", []):
-            rel_path = f["path"]
-            abs_path = Path(app.state.services.settings.datasets_dir) / rel_path
-            files.append(
-                {
-                    "name": f["name"],
-                    "path": rel_path,
-                    "schema": f.get("schema", {}),
-                    "sample_rows": _sample_rows(abs_path, max_rows=3),
-                }
-            )
-        return {"id": ds["id"], "name": ds["name"], "files": files}
+    @app.post("/runs", response_model=ChatResponse)
+    async def submit_run(request: RunSubmitRequest):
+        services: AppServices = app.state.services
+        registry = _load_registry(services.settings)
+        try:
+            dataset = _dataset_by_id(registry, request.dataset_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        run_id = str(uuid.uuid4())
+        created_at = _utc_now_iso()
+        query_mode = request.query_type
+        compiled_sql = None
+        plan_json = request.plan_json
+        python_code = request.python_code
+
+        if request.query_type == "sql":
+            if not request.sql:
+                raise HTTPException(status_code=400, detail="sql is required for query_type=sql")
+            outcome = tool_execute_sql(dataset, request.sql)
+            compiled_sql = outcome.get("compiled_sql")
+        elif request.query_type == "python":
+            if not request.python_code:
+                raise HTTPException(status_code=400, detail="python_code is required for query_type=python")
+            outcome = tool_execute_python(dataset, request.python_code)
+        else:
+            if not request.plan_json:
+                raise HTTPException(status_code=400, detail="plan_json is required for query_type=plan")
+            try:
+                outcome = tool_execute_query_plan(dataset, request.plan_json)
+                plan_json = outcome.get("plan_json")
+                compiled_sql = outcome.get("compiled_sql")
+            except ValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        status = outcome.get("status", "failed")
+        raw_result = outcome.get("result", {})
+        response = ChatResponse(
+            assistant_message="Run submitted and executed.",
+            run_id=run_id,
+            status=status if status in {"succeeded", "failed", "rejected"} else "failed",
+            result={
+                "columns": raw_result.get("columns", []),
+                "rows": raw_result.get("rows", []),
+                "row_count": raw_result.get("row_count", 0),
+                "exec_time_ms": raw_result.get("exec_time_ms", 0),
+                "error": raw_result.get("error"),
+            },
+            details={
+                "dataset_id": request.dataset_id,
+                "query_mode": query_mode,
+                "plan_json": plan_json,
+                "compiled_sql": compiled_sql,
+                "python_code": python_code,
+            },
+        )
+        _insert_capsule(
+            services.settings.capsule_db_path,
+            {
+                "run_id": run_id,
+                "created_at": created_at,
+                "dataset_id": request.dataset_id,
+                "dataset_version_hash": dataset.get("version_hash"),
+                "question": None,
+                "query_mode": query_mode,
+                "plan_json": plan_json,
+                "compiled_sql": compiled_sql,
+                "python_code": python_code,
+                "status": response.status,
+                "result_json": response.result,
+                "error_json": response.result.get("error"),
+                "exec_time_ms": response.result.get("exec_time_ms", 0),
+            },
+        )
+        return response
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest):
@@ -1215,6 +1258,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Run not found")
         return capsule
 
+    @app.get("/runs/{run_id}/status")
+    async def get_run_status(run_id: str):
+        return tool_get_run_status(run_id)
+
     @app.get("/", response_class=HTMLResponse)
     async def home():
         return HTMLResponse(
@@ -1236,6 +1283,7 @@ def create_app(
   <h1>CSV Analyst Chat (Minimal)</h1>
   <label>Dataset</label>
   <select id="dataset"></select>
+  <div id="prompts"></div>
   <label>Message</label>
   <textarea id="message" rows="4" placeholder="Ask a question, SQL: SELECT ..., or PYTHON: result = ..."></textarea>
   <button id="send">Send</button>
@@ -1251,12 +1299,34 @@ def create_app(
       const res = await fetch('/datasets');
       const data = await res.json();
       const sel = document.getElementById('dataset');
+      window.datasetMeta = {};
       sel.innerHTML = '';
       for (const ds of data.datasets) {
+        window.datasetMeta[ds.id] = ds;
         const opt = document.createElement('option');
         opt.value = ds.id;
         opt.textContent = ds.id + ' - ' + ds.name;
         sel.appendChild(opt);
+      }
+      renderPrompts();
+    }
+
+    function renderPrompts() {
+      const datasetId = document.getElementById('dataset').value;
+      const promptsWrap = document.getElementById('prompts');
+      promptsWrap.innerHTML = '';
+      const ds = window.datasetMeta && window.datasetMeta[datasetId];
+      if (!ds || !ds.prompts || ds.prompts.length === 0) return;
+      const label = document.createElement('div');
+      label.textContent = 'Suggested prompts:';
+      promptsWrap.appendChild(label);
+      for (const p of ds.prompts.slice(0, 4)) {
+        const btn = document.createElement('button');
+        btn.style.marginRight = '.5rem';
+        btn.style.marginBottom = '.5rem';
+        btn.textContent = p;
+        btn.onclick = () => { document.getElementById('message').value = p; };
+        promptsWrap.appendChild(btn);
       }
     }
 
@@ -1324,6 +1394,8 @@ def create_app(
         }
       }
     };
+
+    document.getElementById('dataset').onchange = renderPrompts;
 
     loadDatasets();
   </script>

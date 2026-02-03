@@ -4,13 +4,14 @@ Unit tests for QueryPlanCompiler.
 Tests SQL compilation, determinism, and safety features.
 """
 
-import pytest
-
 import sys
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "agent-server"))
 
-from app.models.query_plan import (
+from app.models.query_plan import (  # noqa: E402
     QueryPlan,
     Filter,
     FilterOperator,
@@ -20,7 +21,7 @@ from app.models.query_plan import (
     OrderBy,
     SortDirection,
 )
-from app.validators.compiler import QueryPlanCompiler, CompilationError
+from app.validators.compiler import QueryPlanCompiler, CompilationError  # noqa: E402
 
 
 class TestBasicCompilation:

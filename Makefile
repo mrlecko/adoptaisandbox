@@ -62,9 +62,9 @@ test: agent-venv ## Run all tests
 	$(AGENT_PYTEST) tests/ -v
 	@echo "✓ All tests passed"
 
-test-runner: build-runner-test ## Run runner integration tests (requires Docker)
+test-runner: agent-venv build-runner-test ## Run runner integration tests (requires Docker)
 	@echo "Running runner integration tests..."
-	RUNNER_TEST_IMAGE=csv-analyst-runner:test pytest tests/integration/test_runner_container.py -v
+	RUNNER_TEST_IMAGE=csv-analyst-runner:test $(AGENT_PYTEST) tests/integration/test_runner_container.py tests/integration/test_docker_executor_integration.py -v
 
 test-agent-server: agent-venv ## Run single-file agent server integration tests
 	@echo "Running agent server integration tests..."

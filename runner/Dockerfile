@@ -23,10 +23,11 @@ RUN mkdir -p /app /data /tmp/duckdb && \
     chown -R runner:runner /app /tmp/duckdb
 
 # Copy runner scripts
+COPY common.py /app/common.py
 COPY runner.py /app/runner.py
 COPY runner_python.py /app/runner_python.py
 RUN chmod +x /app/runner.py /app/runner_python.py && \
-    chown runner:runner /app/runner.py /app/runner_python.py
+    chown runner:runner /app/common.py /app/runner.py /app/runner_python.py
 
 # Switch to non-root user
 USER runner
