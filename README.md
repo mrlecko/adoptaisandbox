@@ -111,9 +111,9 @@ Current validated counts:
 - `104` unit tests
 - `25` single-file server integration tests
 - `14` runner + DockerExecutor integration tests
-- `4` MicroSandbox integration tests (opt-in; run with `RUN_MICROSANDBOX_TESTS=1`)
+- `6` MicroSandbox executor/provider tests (`RUN_MICROSANDBOX_TESTS=1` for live integration)
 - `6` security policy tests
-- `153` tests total (`135` pass + `18` environment-dependent skips under plain `make test`)
+- `155` tests total (`155/155` pass in live-enabled run)
 
 ## Make Targets You’ll Use Most
 
@@ -129,7 +129,7 @@ Current validated counts:
 
 - If MicroSandbox tests are skipped, set `RUN_MICROSANDBOX_TESTS=1`.
 - If provider startup fails, verify `MSB_SERVER_URL` and that `/api/v1/health` is reachable.
-- Ensure `RUNNER_IMAGE` is available to the MicroSandbox runtime.
+- If `RUNNER_IMAGE` is not pullable by MicroSandbox, the executor falls back to `msb exe` using `MSB_FALLBACK_IMAGE` and mounted runner files.
 - Use `SANDBOX_PROVIDER=docker` as the default fallback during local development.
 
 ## Key Environment Variables
@@ -142,6 +142,7 @@ Defined in `.env.example`:
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
 - `SANDBOX_PROVIDER` (`docker|microsandbox`)
 - `MSB_SERVER_URL`, `MSB_API_KEY`, `MSB_NAMESPACE`, `MSB_MEMORY_MB`, `MSB_CPUS`
+- `MSB_CLI_PATH`, `MSB_FALLBACK_IMAGE` (optional MicroSandbox CLI fallback controls)
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
 - `STORAGE_PROVIDER` (`sqlite` currently)
 - `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)

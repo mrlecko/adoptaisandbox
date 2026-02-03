@@ -200,6 +200,7 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
+    "tests/integration/__pycache__/test_agent_server_singlefile.cpython-311-pytest-7.4.4.pyc.194028",
     "docs/AGENTIFY_UPGRADE.md",
     "docs/AGENTIFY_UPGRADE.md.tmp.24216.1770089059416",
     "agent-server/capsules.db-journal",
@@ -235,7 +236,6 @@
     "docs/IMPLEMENTATION_PLAN.md",
     "TODO.md",
     "docs/PRD/Deployment PRD.md",
-    "docs/PRD/Core PRD.md",
-    "README.md"
+    "docs/PRD/Core PRD.md"
   ]
 }

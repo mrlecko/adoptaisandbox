@@ -19,13 +19,13 @@ Add MicroSandbox as an execution backend option, while keeping Docker support.
 
 ## 0) Preflight + Design Lock
 
-- [~] Confirm MicroSandbox host/runtime prerequisites in target environments (dev + prod-like)
-- [~] Confirm auth model (`MSB_API_KEY`) and endpoint config for all environments
+- [x] Confirm MicroSandbox host/runtime prerequisites in target environments (dev + prod-like)
+- [x] Confirm auth model (`MSB_API_KEY`) and endpoint config for all environments
 - [~] Lock contract parity requirements with current Docker executor:
   - [x] Timeout semantics
   - [x] Error type mapping
   - [x] Output truncation behavior
-  - [~] Data mount behavior
+  - [x] Data mount behavior
 
 ## 1) Configuration + Settings
 
@@ -95,7 +95,7 @@ Add MicroSandbox as an execution backend option, while keeping Docker support.
   - [x] Timeout path
 - [~] Add provider matrix smoke coverage:
   - [x] `docker` provider run
-  - [~] `microsandbox` provider run (live run behind `RUN_MICROSANDBOX_TESTS=1`)
+  - [x] `microsandbox` provider run (live run behind `RUN_MICROSANDBOX_TESTS=1`)
 
 ### Regression
 - [x] Ensure existing tests pass unchanged with Docker default
@@ -130,12 +130,18 @@ Add MicroSandbox as an execution backend option, while keeping Docker support.
 ## Acceptance Criteria
 
 - [x] Agent runs SQL queries successfully with `SANDBOX_PROVIDER=docker`
-- [~] Agent runs SQL queries successfully with `SANDBOX_PROVIDER=microsandbox` (live env required)
-- [~] Agent runs Python queries successfully with both providers (live env required for microsandbox)
+- [x] Agent runs SQL queries successfully with `SANDBOX_PROVIDER=microsandbox` (live env required)
+- [x] Agent runs Python queries successfully with both providers (live env required for microsandbox)
 - [x] Same API response contract for both providers
 - [x] Timeouts and policy failures are mapped consistently
 - [x] Existing regression suite passes
-- [~] Provider-specific integration tests pass (live env required)
+- [x] Provider-specific integration tests pass (live env required)
+
+### Live validation completed
+
+- Ran live server on `http://127.0.0.1:5555/api/v1/rpc` with API key auth.
+- Executed `RUN_MICROSANDBOX_TESTS=1 make test-microsandbox` with no skips.
+- Executed full suite `RUN_MICROSANDBOX_TESTS=1 make test` with no skips.
 
 ---
 

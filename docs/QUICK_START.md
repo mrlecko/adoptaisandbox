@@ -7,6 +7,7 @@ Get the current PoC running locally (single-file FastAPI server + sandboxed runn
 - Python 3.11+ preferred
 - Docker
 - Make
+- (Optional, for live MicroSandbox tests) `msb` CLI installed locally
 
 ## 1) Install agent-server dependencies
 
@@ -46,6 +47,8 @@ MSB_API_KEY=
 MSB_NAMESPACE=default
 MSB_MEMORY_MB=512
 MSB_CPUS=1.0
+MSB_CLI_PATH=/home/juancho/.local/bin/msb
+MSB_FALLBACK_IMAGE=python:3.11-slim
 STORAGE_PROVIDER=sqlite
 THREAD_HISTORY_WINDOW=12
 ```
@@ -65,7 +68,16 @@ make test-runner
 make test-microsandbox
 
 # Run live MicroSandbox integration tests (requires reachable MicroSandbox server)
-RUN_MICROSANDBOX_TESTS=1 make test-microsandbox
+RUN_MICROSANDBOX_TESTS=1 \
+MSB_SERVER_URL=http://127.0.0.1:5555/api/v1/rpc \
+MSB_API_KEY=<your_key> \
+make test-microsandbox
+
+# Run the full suite with live MicroSandbox enabled (no skips)
+RUN_MICROSANDBOX_TESTS=1 \
+MSB_SERVER_URL=http://127.0.0.1:5555/api/v1/rpc \
+MSB_API_KEY=<your_key> \
+make test
 ```
 
 ## 5) Start server + UI
@@ -98,3 +110,4 @@ make test-unit
 - QueryPlan DSL is handled in agent-server (`demo_query_plan.py` + compiler).
 - Runner executes SQL and restricted Python (separate entrypoints in the same image); it does not parse QueryPlan JSON.
 - Streaming endpoint is `POST /chat/stream` and the static UI consumes it.
+- MicroSandbox path supports JSON-RPC execution and CLI fallback (`msb exe`) when image/runtime constraints prevent direct RPC execution.

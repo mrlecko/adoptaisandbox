@@ -88,11 +88,11 @@ async def test_home_serves_static_ui(tmp_path):
         response = await client.get("/")
         assert response.status_code == 200
         body = response.text
-        assert "CSV Analyst Chat (Minimal)" in body
+        assert "CSV Analysis Agent" in body
         assert "id=\"dataset\"" in body
         assert "id=\"messages\"" in body
         assert "/chat/stream" in body
-        assert "Suggested prompts:" in body
+        assert "id=\"prompts\"" in body
     finally:
         await client.aclose()
 
