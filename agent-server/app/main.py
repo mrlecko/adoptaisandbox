@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from .datasets import get_dataset_by_id, load_registry
 from .models.query_plan import QueryPlan, SelectColumn
+from .storage import MessageStore, create_message_store
 from .storage.capsules import get_capsule, init_capsule_db, insert_capsule
 from .validators.compiler import QueryPlanCompiler
 from .validators.sql_policy import normalize_sql_for_dataset, validate_sql_policy
@@ -58,6 +59,8 @@ class Settings(BaseModel):
     max_rows: int = Field(default=200)
     max_output_bytes: int = Field(default=65536)
     enable_python_execution: bool = Field(default=True)
+    storage_provider: str = Field(default="sqlite")
+    thread_history_window: int = Field(default=12)
     log_level: str = Field(default="info")
 
 
@@ -74,6 +77,7 @@ class ChatResponse(BaseModel):
 
     assistant_message: str
     run_id: str
+    thread_id: Optional[str] = None
     status: Literal["succeeded", "failed", "rejected"]
     result: Dict[str, Any]
     details: Dict[str, Any]
@@ -314,6 +318,7 @@ def _generate_with_langchain(
     dataset: Dict[str, Any],
     message: str,
     max_rows: int,
+    history: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[Any]:
     try:
         from langchain_core.prompts import ChatPromptTemplate
@@ -331,6 +336,7 @@ def _generate_with_langchain(
             for f in dataset.get("files", [])
         ],
     }
+    history_text = _format_history_text(history)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -344,7 +350,10 @@ def _generate_with_langchain(
                     "Always keep LIMIT <= {max_rows}."
                 ),
             ),
-            ("human", "Dataset schema: {schema}\n\nUser message: {message}"),
+            (
+                "human",
+                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
+            ),
         ]
     )
 
@@ -384,6 +393,7 @@ def _generate_with_langchain(
     return chain.invoke(
         {
             "schema": json.dumps(schema_summary),
+            "history": history_text,
             "message": message,
             "max_rows": max_rows,
         }
@@ -511,6 +521,7 @@ def _generate_python_with_langchain(
     dataset: Dict[str, Any],
     message: str,
     max_rows: int,
+    history: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[PythonDraft]:
     try:
         from langchain_core.prompts import ChatPromptTemplate
@@ -528,6 +539,7 @@ def _generate_python_with_langchain(
             for f in dataset.get("files", [])
         ],
     }
+    history_text = _format_history_text(history)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -539,7 +551,10 @@ def _generate_python_with_langchain(
                     "Set result_df or result. Keep output to <= {max_rows} rows."
                 ),
             ),
-            ("human", "Dataset schema: {schema}\n\nUser message: {message}"),
+            (
+                "human",
+                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
+            ),
         ]
     )
 
@@ -579,6 +594,7 @@ def _generate_python_with_langchain(
     raw = chain.invoke(
         {
             "schema": json.dumps(schema_summary),
+            "history": history_text,
             "message": message,
             "max_rows": max_rows,
         }
@@ -616,6 +632,7 @@ def _generate_sql_rescue_with_langchain(
     dataset: Dict[str, Any],
     message: str,
     max_rows: int,
+    history: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[SqlRescueDraft]:
     """Fallback LLM path: ask for SQL-only structured payload."""
     try:
@@ -634,6 +651,7 @@ def _generate_sql_rescue_with_langchain(
             for f in dataset.get("files", [])
         ],
     }
+    history_text = _format_history_text(history)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -645,7 +663,10 @@ def _generate_sql_rescue_with_langchain(
                     "Return one SELECT/WITH query."
                 ),
             ),
-            ("human", "Dataset schema: {schema}\n\nUser message: {message}"),
+            (
+                "human",
+                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
+            ),
         ]
     )
 
@@ -685,6 +706,7 @@ def _generate_sql_rescue_with_langchain(
     raw = chain.invoke(
         {
             "schema": json.dumps(schema_summary),
+            "history": history_text,
             "message": message,
             "max_rows": max_rows,
         }
@@ -692,11 +714,74 @@ def _generate_sql_rescue_with_langchain(
     return _coerce_sql_rescue_draft(raw)
 
 
+def _format_history_text(history: Optional[list[dict[str, Any]]]) -> str:
+    if not history:
+        return "(no previous messages)"
+    lines: list[str] = []
+    for item in history:
+        role = item.get("role", "unknown")
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines) if lines else "(no previous messages)"
+
+
+def _humanize_label(name: str) -> str:
+    return name.replace("_", " ").strip()
+
+
+def _summarize_result_for_user(
+    *,
+    question: str,
+    query_mode: str,
+    result: Dict[str, Any],
+) -> str:
+    if result.get("status") != "success":
+        err = result.get("error", {}) or {}
+        msg = err.get("message") or "Execution failed."
+        return f"I couldn't execute that request successfully: {msg}"
+
+    columns = result.get("columns", []) or []
+    rows = result.get("rows", []) or []
+    row_count = int(result.get("row_count", len(rows)) or 0)
+
+    if row_count == 0:
+        return "No rows matched your request."
+
+    if len(columns) == 1 and len(rows) == 1:
+        col = str(columns[0])
+        value = rows[0][0]
+        col_lower = col.lower()
+        if col_lower.startswith("total_"):
+            subject = _humanize_label(col_lower[6:])
+            return f"There are {value} total {subject} in the dataset."
+        if col_lower in {"count", "n", "total", "total_count", "row_count"}:
+            return f"The result is {value}."
+        return f"{_humanize_label(col)}: {value}."
+
+    if len(rows) <= 5 and len(columns) <= 4:
+        first = rows[0]
+        pairs = ", ".join(
+            f"{_humanize_label(str(col))}={first[i]}" for i, col in enumerate(columns) if i < len(first)
+        )
+        if len(rows) == 1:
+            return f"I found one row: {pairs}. See Result for full details."
+        return f"I found {len(rows)} rows. First row: {pairs}. See Result for full details."
+
+    mode_hint = "Python analysis" if query_mode == "python" else "query"
+    return (
+        f"I ran the {mode_hint} and returned {row_count} rows across {len(columns)} columns. "
+        "Please see the Result table for the full breakdown."
+    )
+
+
 @dataclass
 class AppServices:
     settings: Settings
     runner_executor: Callable[..., Dict[str, Any]]
     compiler: QueryPlanCompiler
+    message_store: MessageStore
 
 
 def _normalize_runner_to_status(result: Dict[str, Any]) -> Literal["succeeded", "failed"]:
@@ -725,17 +810,22 @@ def create_app(
         max_rows=int(os.getenv("MAX_ROWS", "200")),
         max_output_bytes=int(os.getenv("MAX_OUTPUT_BYTES", "65536")),
         enable_python_execution=os.getenv("ENABLE_PYTHON_EXECUTION", "true").lower() == "true",
+        storage_provider=os.getenv("STORAGE_PROVIDER", "sqlite"),
+        thread_history_window=int(os.getenv("THREAD_HISTORY_WINDOW", "12")),
         log_level=os.getenv("LOG_LEVEL", "info"),
     )
 
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
     _init_capsule_db(settings.capsule_db_path)
+    message_store = create_message_store(settings.storage_provider, settings.capsule_db_path)
+    message_store.initialize()
 
     app = FastAPI(title="CSV Analyst Agent Server")
     app.state.services = AppServices(
         settings=settings,
         runner_executor=runner_executor or _default_runner_executor,
         compiler=QueryPlanCompiler(),
+        message_store=message_store,
     )
 
     # Tool-style helpers used by chat flow and /runs endpoint.
@@ -844,8 +934,63 @@ def create_app(
         registry = _load_registry(services.settings)
         dataset = _dataset_by_id(registry, request.dataset_id)
         run_id = str(uuid.uuid4())
+        thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
         status_cb = status_cb or (lambda *_: None)
-        _log_event("chat.request", run_id=run_id, dataset_id=request.dataset_id, message=request.message)
+        _log_event(
+            "chat.request",
+            run_id=run_id,
+            thread_id=thread_id,
+            dataset_id=request.dataset_id,
+            message=request.message,
+        )
+
+        history = services.message_store.get_messages(
+            thread_id=thread_id,
+            limit=max(1, services.settings.thread_history_window),
+        )
+        services.message_store.append_message(
+            thread_id=thread_id,
+            role="user",
+            content=request.message,
+            dataset_id=request.dataset_id,
+            run_id=run_id,
+        )
+
+        def persist_capsule(
+            *,
+            response: ChatResponse,
+            query_mode: str,
+            plan_json: Optional[Dict[str, Any]],
+            compiled_sql: Optional[str],
+            python_code: Optional[str],
+        ) -> None:
+            _insert_capsule(
+                services.settings.capsule_db_path,
+                {
+                    "run_id": run_id,
+                    "created_at": _utc_now_iso(),
+                    "dataset_id": request.dataset_id,
+                    "dataset_version_hash": dataset.get("version_hash"),
+                    "question": request.message,
+                    "query_mode": query_mode,
+                    "plan_json": plan_json,
+                    "compiled_sql": compiled_sql,
+                    "python_code": python_code,
+                    "status": response.status,
+                    "result_json": response.result,
+                    "error_json": response.result.get("error"),
+                    "exec_time_ms": response.result.get("exec_time_ms", 0),
+                },
+            )
+
+        def persist_assistant(content: str) -> None:
+            services.message_store.append_message(
+                thread_id=thread_id,
+                role="assistant",
+                content=content,
+                dataset_id=request.dataset_id,
+                run_id=run_id,
+            )
 
         status_cb("planning")
         explicit_sql = request.message.strip().lower().startswith("sql:")
@@ -873,6 +1018,7 @@ def create_app(
                 response = ChatResponse(
                     assistant_message="Query rejected: Python execution is disabled.",
                     run_id=run_id,
+                    thread_id=thread_id,
                     status="rejected",
                     result=result,
                     details={
@@ -883,24 +1029,14 @@ def create_app(
                         "python_code": None,
                     },
                 )
-                _insert_capsule(
-                    services.settings.capsule_db_path,
-                    {
-                        "run_id": run_id,
-                        "created_at": _utc_now_iso(),
-                        "dataset_id": request.dataset_id,
-                        "dataset_version_hash": dataset.get("version_hash"),
-                        "question": request.message,
-                        "query_mode": "python",
-                        "plan_json": None,
-                        "compiled_sql": None,
-                        "python_code": None,
-                        "status": response.status,
-                        "result_json": response.result,
-                        "error_json": response.result.get("error"),
-                        "exec_time_ms": 0,
-                    },
+                persist_capsule(
+                    response=response,
+                    query_mode="python",
+                    plan_json=None,
+                    compiled_sql=None,
+                    python_code=None,
                 )
+                persist_assistant(response.assistant_message)
                 _log_event("chat.rejected", run_id=run_id, reason="python_disabled")
                 return response
             query_mode = "python"
@@ -913,6 +1049,7 @@ def create_app(
                     dataset=dataset,
                     message=request.message,
                     max_rows=services.settings.max_rows,
+                    history=history,
                 )
                 if generated:
                     python_code = generated.python_code
@@ -945,6 +1082,7 @@ def create_app(
                                 "Please provide explicit code with 'PYTHON: ...'."
                             ),
                             run_id=run_id,
+                            thread_id=thread_id,
                             status="rejected",
                             result=result,
                             details={
@@ -955,24 +1093,14 @@ def create_app(
                                 "python_code": None,
                             },
                         )
-                        _insert_capsule(
-                            services.settings.capsule_db_path,
-                            {
-                                "run_id": run_id,
-                                "created_at": _utc_now_iso(),
-                                "dataset_id": request.dataset_id,
-                                "dataset_version_hash": dataset.get("version_hash"),
-                                "question": request.message,
-                                "query_mode": "python",
-                                "plan_json": None,
-                                "compiled_sql": None,
-                                "python_code": None,
-                                "status": response.status,
-                                "result_json": response.result,
-                                "error_json": response.result.get("error"),
-                                "exec_time_ms": 0,
-                            },
+                        persist_capsule(
+                            response=response,
+                            query_mode="python",
+                            plan_json=None,
+                            compiled_sql=None,
+                            python_code=None,
                         )
+                        persist_assistant(response.assistant_message)
                         _log_event("chat.rejected", run_id=run_id, reason="python_generation_failed")
                         return response
             sql = ""
@@ -984,6 +1112,7 @@ def create_app(
                 dataset=dataset,
                 message=request.message,
                 max_rows=services.settings.max_rows,
+                history=history,
             )
             draft = _coerce_agent_draft(raw_draft)
             if draft:
@@ -993,6 +1122,7 @@ def create_app(
                     response = ChatResponse(
                         assistant_message=assistant_message,
                         run_id=run_id,
+                        thread_id=thread_id,
                         status="succeeded",
                         result={
                             "columns": [],
@@ -1009,24 +1139,14 @@ def create_app(
                             "python_code": None,
                         },
                     )
-                    _insert_capsule(
-                        services.settings.capsule_db_path,
-                        {
-                            "run_id": run_id,
-                            "created_at": _utc_now_iso(),
-                            "dataset_id": request.dataset_id,
-                            "dataset_version_hash": dataset.get("version_hash"),
-                            "question": request.message,
-                            "query_mode": "chat",
-                            "plan_json": None,
-                            "compiled_sql": None,
-                            "python_code": None,
-                            "status": response.status,
-                            "result_json": response.result,
-                            "error_json": None,
-                            "exec_time_ms": 0,
-                        },
+                    persist_capsule(
+                        response=response,
+                        query_mode="chat",
+                        plan_json=None,
+                        compiled_sql=None,
+                        python_code=None,
                     )
+                    persist_assistant(response.assistant_message)
                     _log_event("chat.completed", run_id=run_id, status=response.status, query_mode="chat")
                     return response
                 if query_mode == "sql":
@@ -1048,6 +1168,7 @@ def create_app(
                     dataset=dataset,
                     message=request.message,
                     max_rows=services.settings.max_rows,
+                    history=history,
                 )
                 if rescue:
                     query_mode = "sql"
@@ -1060,6 +1181,7 @@ def create_app(
                             "Please try again, or use explicit `SQL:` / `PYTHON:`."
                         ),
                         run_id=run_id,
+                        thread_id=thread_id,
                         status="rejected",
                         result={
                             "columns": [],
@@ -1079,24 +1201,14 @@ def create_app(
                             "python_code": None,
                         },
                     )
-                    _insert_capsule(
-                        services.settings.capsule_db_path,
-                        {
-                            "run_id": run_id,
-                            "created_at": _utc_now_iso(),
-                            "dataset_id": request.dataset_id,
-                            "dataset_version_hash": dataset.get("version_hash"),
-                            "question": request.message,
-                            "query_mode": "chat",
-                            "plan_json": None,
-                            "compiled_sql": None,
-                            "python_code": None,
-                            "status": response.status,
-                            "result_json": response.result,
-                            "error_json": response.result.get("error"),
-                            "exec_time_ms": 0,
-                        },
+                    persist_capsule(
+                        response=response,
+                        query_mode="chat",
+                        plan_json=None,
+                        compiled_sql=None,
+                        python_code=None,
                     )
+                    persist_assistant(response.assistant_message)
                     _log_event("chat.rejected", run_id=run_id, reason="llm_unavailable_or_invalid")
                     return response
 
@@ -1119,6 +1231,7 @@ def create_app(
                 response = ChatResponse(
                     assistant_message="Query rejected by SQL policy.",
                     run_id=run_id,
+                    thread_id=thread_id,
                     status="rejected",
                     result=result,
                     details={
@@ -1129,24 +1242,14 @@ def create_app(
                         "python_code": python_code,
                     },
                 )
-                _insert_capsule(
-                    services.settings.capsule_db_path,
-                    {
-                        "run_id": run_id,
-                        "created_at": _utc_now_iso(),
-                        "dataset_id": request.dataset_id,
-                        "dataset_version_hash": dataset.get("version_hash"),
-                        "question": request.message,
-                        "query_mode": query_mode,
-                        "plan_json": plan_json,
-                        "compiled_sql": compiled_sql or sql,
-                        "python_code": python_code,
-                        "status": response.status,
-                        "result_json": response.result,
-                        "error_json": response.result.get("error"),
-                        "exec_time_ms": 0,
-                    },
+                persist_capsule(
+                    response=response,
+                    query_mode=query_mode,
+                    plan_json=plan_json,
+                    compiled_sql=compiled_sql or sql,
+                    python_code=python_code,
                 )
+                persist_assistant(response.assistant_message)
                 _log_event("chat.rejected", run_id=run_id, reason="sql_policy")
                 return response
         else:
@@ -1165,9 +1268,15 @@ def create_app(
         )
 
         response_status = _normalize_runner_to_status(runner_result)
+        final_message = _summarize_result_for_user(
+            question=request.message,
+            query_mode=query_mode,
+            result=runner_result,
+        )
         response = ChatResponse(
-            assistant_message=assistant_message,
+            assistant_message=final_message,
             run_id=run_id,
+            thread_id=thread_id,
             status=response_status,
             result={
                 "columns": runner_result.get("columns", []),
@@ -1185,24 +1294,14 @@ def create_app(
             },
         )
 
-        _insert_capsule(
-            services.settings.capsule_db_path,
-            {
-                "run_id": run_id,
-                "created_at": _utc_now_iso(),
-                "dataset_id": request.dataset_id,
-                "dataset_version_hash": dataset.get("version_hash"),
-                "question": request.message,
-                "query_mode": query_mode,
-                "plan_json": plan_json,
-                "compiled_sql": compiled_sql or sql if query_mode != "python" else None,
-                "python_code": python_code,
-                "status": response.status,
-                "result_json": response.result,
-                "error_json": response.result.get("error"),
-                "exec_time_ms": response.result.get("exec_time_ms", 0),
-            },
+        persist_capsule(
+            response=response,
+            query_mode=query_mode,
+            plan_json=plan_json,
+            compiled_sql=compiled_sql or sql if query_mode != "python" else None,
+            python_code=python_code,
         )
+        persist_assistant(response.assistant_message)
         _log_event("chat.completed", run_id=run_id, status=response.status, query_mode=query_mode)
         return response
 
@@ -1344,6 +1443,17 @@ def create_app(
     async def get_run_status(run_id: str):
         return tool_get_run_status(run_id)
 
+    @app.get("/threads/{thread_id}/messages")
+    async def get_thread_messages(thread_id: str, limit: int = 50):
+        capped = min(max(limit, 1), 200)
+        return {
+            "thread_id": thread_id,
+            "messages": app.state.services.message_store.get_messages(
+                thread_id=thread_id,
+                limit=capped,
+            ),
+        }
+
     @app.get("/", response_class=HTMLResponse)
     async def home():
         return HTMLResponse(
@@ -1360,6 +1470,8 @@ def create_app(
     #status { color: #555; margin-bottom: .75rem; }
     pre { background: #f6f6f6; padding: .5rem; overflow-x: auto; }
     #messages { border: 1px solid #ddd; background: #fafafa; height: 320px; overflow-y: auto; padding: .75rem; margin-bottom: 1rem; }
+    #thread-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+    #thread-id { color: #666; font-size: .9rem; }
     .msg-row { display: flex; margin: .35rem 0; }
     .msg-row.user { justify-content: flex-start; }
     .msg-row.assistant { justify-content: flex-end; }
@@ -1373,6 +1485,10 @@ def create_app(
   <label>Dataset</label>
   <select id="dataset"></select>
   <div id="prompts"></div>
+  <div id="thread-bar">
+    <div id="thread-id"></div>
+    <button id="new-thread" type="button">New conversation</button>
+  </div>
   <h3>Messages</h3>
   <div id="messages"></div>
   <label>Message</label>
@@ -1384,6 +1500,25 @@ def create_app(
   <h3>Details</h3>
   <pre id="details"></pre>
   <script>
+    function randomThreadId() {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+      return 'thread-' + Math.random().toString(36).slice(2, 12);
+    }
+
+    function ensureThreadId() {
+      let threadId = localStorage.getItem('csvAnalystThreadId');
+      if (!threadId) {
+        threadId = randomThreadId();
+        localStorage.setItem('csvAnalystThreadId', threadId);
+      }
+      window.threadId = threadId;
+      document.getElementById('thread-id').textContent = `Thread: ${threadId}`;
+    }
+
+    function clearMessages() {
+      document.getElementById('messages').innerHTML = '';
+    }
+
     function appendMessage(actor, text) {
       const list = document.getElementById('messages');
       const row = document.createElement('div');
@@ -1394,6 +1529,19 @@ def create_app(
       row.appendChild(bubble);
       list.appendChild(row);
       list.scrollTop = list.scrollHeight;
+    }
+
+    async function loadThreadHistory() {
+      if (!window.threadId) return;
+      const res = await fetch(`/threads/${window.threadId}/messages?limit=100`);
+      if (!res.ok) return;
+      const payload = await res.json();
+      clearMessages();
+      for (const msg of payload.messages || []) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          appendMessage(msg.role, msg.content || '');
+        }
+      }
     }
 
     async function loadDatasets() {
@@ -1462,7 +1610,7 @@ def create_app(
       const res = await fetch('/chat/stream', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ dataset_id, message }),
+        body: JSON.stringify({ dataset_id, message, thread_id: window.threadId }),
       });
 
       const reader = res.body.getReader();
@@ -1491,6 +1639,11 @@ def create_app(
           if (eventName === 'status') {
             document.getElementById('status').textContent = `Stage: ${parsed.stage}`;
           } else if (eventName === 'result') {
+            if (parsed.thread_id) {
+              window.threadId = parsed.thread_id;
+              localStorage.setItem('csvAnalystThreadId', window.threadId);
+              document.getElementById('thread-id').textContent = `Thread: ${window.threadId}`;
+            }
             updateFromPayload(parsed);
           } else if (eventName === 'error') {
             appendMessage('assistant', parsed.message || 'Unknown error');
@@ -1501,8 +1654,17 @@ def create_app(
     };
 
     document.getElementById('dataset').onchange = renderPrompts;
+    document.getElementById('new-thread').onclick = async () => {
+      window.threadId = randomThreadId();
+      localStorage.setItem('csvAnalystThreadId', window.threadId);
+      document.getElementById('thread-id').textContent = `Thread: ${window.threadId}`;
+      clearMessages();
+      document.getElementById('status').textContent = 'New conversation started.';
+    };
 
+    ensureThreadId();
     loadDatasets();
+    loadThreadHistory();
   </script>
 </body>
 </html>

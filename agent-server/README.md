@@ -13,6 +13,7 @@ Single-file FastAPI server for CSV Analyst Chat.
   - `POST /runs`
   - `GET /runs/{run_id}`
   - `GET /runs/{run_id}/status`
+  - `GET /threads/{thread_id}/messages`
   - `GET /` (minimal static UI)
 - QueryPlan DSL + compiler live in:
   - `app/models/query_plan.py`
@@ -50,6 +51,8 @@ Key vars:
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
+- `STORAGE_PROVIDER` (currently `sqlite`)
+- `THREAD_HISTORY_WINDOW` (message count loaded into prompt context)
 
 ## Run Locally
 
@@ -72,6 +75,7 @@ Notes:
 - `make run-agent*` uses `agent-server/.venv/bin/uvicorn` (consistent runtime/deps).
 - If LLM structured output is non-executable, server attempts a SQL-rescue pass before safe fallback.
 - Explicit `PYTHON: ...` messages run in the sandbox python entrypoint when enabled.
+- Chat is stateful when `thread_id` is provided; UI persists a thread ID and loads prior messages.
 
 ## Tests
 

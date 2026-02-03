@@ -43,6 +43,8 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
   - dataset-qualified table normalization for runner compatibility
 - ✅ Explicit Python chat mode (`PYTHON: ...`) wired to python runner entrypoint
 - ✅ `/runs` submission API + `/runs/{run_id}/status`
+- ✅ Stateful chat via `thread_id` + persisted thread message history
+- ✅ Result-grounded assistant summaries (scalar inline answer, complex result references)
 
 ### Executor Layer
 - ✅ Executor interface + DockerExecutor module
@@ -68,10 +70,10 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 ```text
 Unit tests                                91 tests ✅
 Security tests                             6 tests ✅
-Agent-server integration                  18 tests ✅
+Agent-server integration                  25 tests ✅
 Runner + DockerExecutor integration       14 tests ✅
 -----------------------------------------------------
-TOTAL                                    129 tests ✅
+TOTAL                                    139 tests ✅
 ```
 
 ### Datasets

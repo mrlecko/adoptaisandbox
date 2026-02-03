@@ -40,6 +40,8 @@ Optional provider selection:
 ```bash
 LLM_PROVIDER=auto  # auto|openai|anthropic
 ENABLE_PYTHON_EXECUTION=true
+STORAGE_PROVIDER=sqlite
+THREAD_HISTORY_WINDOW=12
 ```
 
 ## 3) Build runner image used by tests/server

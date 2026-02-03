@@ -85,12 +85,14 @@ Then open `http://localhost:8000`.
 - `GET /runs/{run_id}/status`
 - `POST /chat`
 - `POST /chat/stream` (SSE)
+- `GET /threads/{thread_id}/messages`
 - `GET /` (minimal static UI)
 
 Message modes:
 - Natural language (default planning path)
 - `SQL: ...` for explicit SQL execution
 - `PYTHON: ...` for explicit Python sandbox execution (feature-flagged by `ENABLE_PYTHON_EXECUTION`)
+- Stateful conversations via `thread_id` (UI persists thread IDs in browser local storage)
 
 ## Testing
 
@@ -107,10 +109,10 @@ make test-runner
 
 Current validated counts:
 - `91` unit tests
-- `18` single-file server integration tests
+- `25` single-file server integration tests
 - `14` runner + DockerExecutor integration tests
 - `6` security policy tests
-- `129` tests total (`115` pass + `14` Docker-dependent skips under plain `make test`)
+- `139` tests total (`125` pass + `14` Docker-dependent skips under plain `make test`)
 
 ## Make Targets You’ll Use Most
 
@@ -129,6 +131,8 @@ Defined in `.env.example`:
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
+- `STORAGE_PROVIDER` (`sqlite` currently)
+- `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)
 
 ## Project Structure
 

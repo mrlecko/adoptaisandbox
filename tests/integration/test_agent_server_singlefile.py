@@ -125,6 +125,65 @@ async def test_chat_sql_happy_path_creates_capsule(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_chat_scalar_result_is_summarized_in_assistant_message(tmp_path):
+    def fake_runner(*_, **__):
+        return {
+            "status": "success",
+            "columns": ["total_orders"],
+            "rows": [[4018]],
+            "row_count": 1,
+            "exec_time_ms": 8,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "ecommerce", "message": "SQL: SELECT COUNT(*) AS total_orders FROM orders"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "4018" in payload["assistant_message"]
+        assert "total orders" in payload["assistant_message"].lower()
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_complex_result_refers_to_result_table(tmp_path):
+    def fake_runner(*_, **__):
+        return {
+            "status": "success",
+            "columns": ["priority", "count", "avg_csat"],
+            "rows": [[f"p{i}", i, 4.5] for i in range(10)],
+            "row_count": 10,
+            "exec_time_ms": 12,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT priority, COUNT(*) AS count, AVG(csat_score) AS avg_csat FROM tickets GROUP BY priority",
+            },
+        )
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "result table" in payload["assistant_message"].lower()
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
 async def test_chat_greeting_does_not_execute_runner(tmp_path):
     def should_not_run(*_args, **_kwargs):
         raise AssertionError("Runner should not be called for greeting messages")
@@ -199,6 +258,109 @@ async def test_chat_mode_from_llm_does_not_execute_runner(tmp_path, monkeypatch)
         assert payload["details"]["query_mode"] == "chat"
         assert "hi there" in payload["assistant_message"].lower()
         assert payload["result"]["row_count"] == 0
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_stateful_memory_with_thread_id(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **kwargs):
+        message = kwargs["message"].lower()
+        history = kwargs.get("history") or []
+        if "what is my name" in message:
+            remembered = any(
+                m.get("role") == "user" and "my name is dave" in str(m.get("content", "")).lower()
+                for m in history
+            )
+            if remembered:
+                return {"query_mode": "chat", "assistant_message": "Your name is Dave."}
+            return {"query_mode": "chat", "assistant_message": "I don't know your name."}
+        return {"query_mode": "chat", "assistant_message": "Nice to meet you, Dave!"}
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("Runner should not be called for chat mode memory test")
+
+    client = await _make_client(tmp_path, runner_executor=should_not_run)
+    try:
+        thread_id = "thread-memory-dave"
+        first = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "thread_id": thread_id,
+                "message": "my name is dave, remember this",
+            },
+        )
+        assert first.status_code == 200
+        assert "dave" in first.json()["assistant_message"].lower()
+
+        second = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "thread_id": thread_id,
+                "message": "what is my name",
+            },
+        )
+        assert second.status_code == 200
+        assert "your name is dave" in second.json()["assistant_message"].lower()
+
+        history_res = await client.get(f"/threads/{thread_id}/messages?limit=20")
+        assert history_res.status_code == 200
+        messages = history_res.json()["messages"]
+        assert len(messages) >= 4
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_thread_isolation(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **kwargs):
+        message = kwargs["message"].lower()
+        history = kwargs.get("history") or []
+        if "what is my name" in message:
+            remembered = any(
+                m.get("role") == "user" and "my name is dave" in str(m.get("content", "")).lower()
+                for m in history
+            )
+            if remembered:
+                return {"query_mode": "chat", "assistant_message": "Your name is Dave."}
+            return {"query_mode": "chat", "assistant_message": "I don't know your name."}
+        return {"query_mode": "chat", "assistant_message": "Noted."}
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("Runner should not be called for chat mode memory test")
+
+    client = await _make_client(tmp_path, runner_executor=should_not_run)
+    try:
+        await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "thread_id": "thread-a",
+                "message": "my name is dave, remember this",
+            },
+        )
+        isolated = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "thread_id": "thread-b",
+                "message": "what is my name",
+            },
+        )
+        assert isolated.status_code == 200
+        assert "don't know your name" in isolated.json()["assistant_message"].lower()
     finally:
         await client.aclose()
 
@@ -291,7 +453,7 @@ async def test_chat_non_sql_accepts_dict_draft_from_llm(tmp_path, monkeypatch):
         payload = response.json()
         assert payload["status"] == "succeeded"
         assert payload["details"]["query_mode"] == "sql"
-        assert payload["assistant_message"] == "LLM generated SQL."
+        assert "42" in payload["assistant_message"]
         assert payload["result"]["rows"] == [[42]]
     finally:
         await client.aclose()
@@ -365,7 +527,7 @@ async def test_chat_non_executable_draft_uses_sql_rescue(tmp_path, monkeypatch):
         payload = response.json()
         assert payload["status"] == "succeeded"
         assert payload["details"]["query_mode"] == "sql"
-        assert payload["assistant_message"] == "Executed via SQL rescue."
+        assert "42" in payload["assistant_message"]
         assert payload["result"]["rows"] == [[42]]
     finally:
         await client.aclose()
@@ -587,7 +749,7 @@ async def test_chat_implicit_python_intent_uses_generated_python(tmp_path, monke
         payload = response.json()
         assert payload["status"] == "succeeded"
         assert payload["details"]["query_mode"] == "python"
-        assert payload["assistant_message"] == "Generated pandas analysis."
+        assert payload["assistant_message"]
         assert captured["query_type"] == "python"
         assert "groupby" in captured["python_code"]
     finally:

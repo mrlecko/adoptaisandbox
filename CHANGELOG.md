@@ -68,6 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Direct run APIs (`POST /runs`, `GET /runs/{run_id}/status`)
 - DockerExecutor integration tests (`tests/integration/test_docker_executor_integration.py`)
 - Expanded python policy/security coverage (subprocess/network/file import/call rejection tests)
+- Stateful conversation support via `thread_id` with persisted message history (`/threads/{thread_id}/messages`)
+- Result-grounded assistant output synthesis (inline scalar answers + complex result references)
+- Scrollable two-sided chat transcript UI (user left, assistant right) with thread persistence in browser
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -83,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs with python runner usage, env vars, and revised test counts
 - Updated TODO/implementation docs to mark Phase 0 complete and Phase 1 complete except stretch AST parser
 - Updated `make test-runner` to always use `agent-server/.venv` and include DockerExecutor integration tests
+- Updated `.env.example` and docs with storage/thread memory configuration (`STORAGE_PROVIDER`, `THREAD_HISTORY_WINDOW`)
 
 ### Deprecated
 - N/A
