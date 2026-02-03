@@ -73,7 +73,9 @@ class Settings(BaseModel):
     @model_validator(mode="after")
     def _validate_provider_config(self) -> "Settings":
         if self.sandbox_provider == "microsandbox" and not self.msb_server_url.strip():
-            raise ValueError("msb_server_url is required when sandbox_provider=microsandbox")
+            raise ValueError(
+                "msb_server_url is required when sandbox_provider=microsandbox"
+            )
         if self.msb_memory_mb <= 0:
             raise ValueError("msb_memory_mb must be > 0")
         if self.msb_cpus <= 0:
@@ -352,7 +354,9 @@ def _build_runner_payload(
     return payload
 
 
-def _fallback_plan(dataset_id: str, dataset: Dict[str, Any], max_rows: int) -> QueryPlan:
+def _fallback_plan(
+    dataset_id: str, dataset: Dict[str, Any], max_rows: int
+) -> QueryPlan:
     first_file = dataset["files"][0]
     table = Path(first_file["name"]).stem
     return QueryPlan(
@@ -423,7 +427,11 @@ def _generate_with_langchain(
                 api_key=settings.openai_api_key,
             ).with_structured_output(AgentDraft)
 
-    if model is None and provider in ("auto", "anthropic") and settings.anthropic_api_key:
+    if (
+        model is None
+        and provider in ("auto", "anthropic")
+        and settings.anthropic_api_key
+    ):
         try:
             from langchain_anthropic import ChatAnthropic
         except Exception:
@@ -624,7 +632,11 @@ def _generate_python_with_langchain(
                 api_key=settings.openai_api_key,
             ).with_structured_output(PythonDraft)
 
-    if model is None and provider in ("auto", "anthropic") and settings.anthropic_api_key:
+    if (
+        model is None
+        and provider in ("auto", "anthropic")
+        and settings.anthropic_api_key
+    ):
         try:
             from langchain_anthropic import ChatAnthropic
         except Exception:
@@ -736,7 +748,11 @@ def _generate_sql_rescue_with_langchain(
                 api_key=settings.openai_api_key,
             ).with_structured_output(SqlRescueDraft)
 
-    if model is None and provider in ("auto", "anthropic") and settings.anthropic_api_key:
+    if (
+        model is None
+        and provider in ("auto", "anthropic")
+        and settings.anthropic_api_key
+    ):
         try:
             from langchain_anthropic import ChatAnthropic
         except Exception:
@@ -813,7 +829,9 @@ def _summarize_result_for_user(
     if len(rows) <= 5 and len(columns) <= 4:
         first = rows[0]
         pairs = ", ".join(
-            f"{_humanize_label(str(col))}={first[i]}" for i, col in enumerate(columns) if i < len(first)
+            f"{_humanize_label(str(col))}={first[i]}"
+            for i, col in enumerate(columns)
+            if i < len(first)
         )
         if len(rows) == 1:
             return f"I found one row: {pairs}. See Result for full details."
@@ -834,7 +852,9 @@ class AppServices:
     message_store: MessageStore
 
 
-def _normalize_runner_to_status(result: Dict[str, Any]) -> Literal["succeeded", "failed"]:
+def _normalize_runner_to_status(
+    result: Dict[str, Any]
+) -> Literal["succeeded", "failed"]:
     return "succeeded" if result.get("status") == "success" else "failed"
 
 
@@ -859,7 +879,8 @@ def create_app(
         run_timeout_seconds=int(os.getenv("RUN_TIMEOUT_SECONDS", "10")),
         max_rows=int(os.getenv("MAX_ROWS", "200")),
         max_output_bytes=int(os.getenv("MAX_OUTPUT_BYTES", "65536")),
-        enable_python_execution=os.getenv("ENABLE_PYTHON_EXECUTION", "true").lower() == "true",
+        enable_python_execution=os.getenv("ENABLE_PYTHON_EXECUTION", "true").lower()
+        == "true",
         sandbox_provider=os.getenv("SANDBOX_PROVIDER", "docker"),
         msb_server_url=os.getenv("MSB_SERVER_URL", "http://127.0.0.1:5555/api/v1/rpc"),
         msb_api_key=os.getenv("MSB_API_KEY", ""),
@@ -871,9 +892,13 @@ def create_app(
         log_level=os.getenv("LOG_LEVEL", "info"),
     )
 
-    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO)
+    )
     _init_capsule_db(settings.capsule_db_path)
-    message_store = create_message_store(settings.storage_provider, settings.capsule_db_path)
+    message_store = create_message_store(
+        settings.storage_provider, settings.capsule_db_path
+    )
     message_store.initialize()
 
     default_runner_callable: Callable[..., Dict[str, Any]]
@@ -985,16 +1010,24 @@ def create_app(
             python_code=None,
             max_output_bytes=app.state.services.settings.max_output_bytes,
         )
-        return {"status": _normalize_runner_to_status(runner_result), "result": runner_result, "compiled_sql": sql}
+        return {
+            "status": _normalize_runner_to_status(runner_result),
+            "result": runner_result,
+            "compiled_sql": sql,
+        }
 
-    def tool_execute_query_plan(dataset: Dict[str, Any], plan_json: Dict[str, Any]) -> Dict[str, Any]:
+    def tool_execute_query_plan(
+        dataset: Dict[str, Any], plan_json: Dict[str, Any]
+    ) -> Dict[str, Any]:
         plan = QueryPlan.model_validate(plan_json)
         compiled_sql = app.state.services.compiler.compile(plan)
         outcome = tool_execute_sql(dataset, compiled_sql)
         outcome["plan_json"] = plan.model_dump()
         return outcome
 
-    def tool_execute_python(dataset: Dict[str, Any], python_code: str) -> Dict[str, Any]:
+    def tool_execute_python(
+        dataset: Dict[str, Any], python_code: str
+    ) -> Dict[str, Any]:
         if not app.state.services.settings.enable_python_execution:
             return {
                 "status": "rejected",
@@ -1003,7 +1036,10 @@ def create_app(
                     "rows": [],
                     "row_count": 0,
                     "exec_time_ms": 0,
-                    "error": {"type": "FEATURE_DISABLED", "message": "Python execution mode is disabled."},
+                    "error": {
+                        "type": "FEATURE_DISABLED",
+                        "message": "Python execution mode is disabled.",
+                    },
                 },
             }
         runner_result = app.state.services.runner_executor(
@@ -1016,7 +1052,10 @@ def create_app(
             python_code=python_code,
             max_output_bytes=app.state.services.settings.max_output_bytes,
         )
-        return {"status": _normalize_runner_to_status(runner_result), "result": runner_result}
+        return {
+            "status": _normalize_runner_to_status(runner_result),
+            "result": runner_result,
+        }
 
     def tool_get_run_status(run_id: str) -> Dict[str, Any]:
         capsule = _get_capsule(app.state.services.settings.capsule_db_path, run_id)
@@ -1096,7 +1135,9 @@ def create_app(
         explicit_python = request.message.strip().lower().startswith("python:")
         implicit_python = _is_python_intent(request.message) and not explicit_sql
 
-        query_mode: Literal["sql", "plan", "python", "chat"] = "sql" if explicit_sql else "plan"
+        query_mode: Literal["sql", "plan", "python", "chat"] = (
+            "sql" if explicit_sql else "plan"
+        )
         assistant_message = "Executed query."
         plan_json = None
         compiled_sql = None
@@ -1165,7 +1206,9 @@ def create_app(
                         max_rows=services.settings.max_rows,
                     )
                     if python_code:
-                        assistant_message = "Generated pandas code from request and executed it."
+                        assistant_message = (
+                            "Generated pandas code from request and executed it."
+                        )
                     else:
                         result = {
                             "columns": [],
@@ -1268,7 +1311,9 @@ def create_app(
                     sql = draft.sql or ""
                 else:
                     try:
-                        plan = draft.plan or _fallback_plan(request.dataset_id, dataset, services.settings.max_rows)
+                        plan = draft.plan or _fallback_plan(
+                            request.dataset_id, dataset, services.settings.max_rows
+                        )
                     except ValidationError as exc:
                         raise HTTPException(status_code=400, detail=str(exc)) from exc
                     plan_json = plan.model_dump()
@@ -1276,7 +1321,9 @@ def create_app(
                     sql = compiled_sql
             else:
                 if raw_draft is not None:
-                    LOGGER.warning("LLM output could not be parsed as AgentDraft; trying SQL rescue.")
+                    LOGGER.warning(
+                        "LLM output could not be parsed as AgentDraft; trying SQL rescue."
+                    )
 
                 rescue = _generate_sql_rescue_with_langchain(
                     settings=services.settings,
@@ -1469,16 +1516,23 @@ def create_app(
 
         if request.query_type == "sql":
             if not request.sql:
-                raise HTTPException(status_code=400, detail="sql is required for query_type=sql")
+                raise HTTPException(
+                    status_code=400, detail="sql is required for query_type=sql"
+                )
             outcome = tool_execute_sql(dataset, request.sql)
             compiled_sql = outcome.get("compiled_sql")
         elif request.query_type == "python":
             if not request.python_code:
-                raise HTTPException(status_code=400, detail="python_code is required for query_type=python")
+                raise HTTPException(
+                    status_code=400,
+                    detail="python_code is required for query_type=python",
+                )
             outcome = tool_execute_python(dataset, request.python_code)
         else:
             if not request.plan_json:
-                raise HTTPException(status_code=400, detail="plan_json is required for query_type=plan")
+                raise HTTPException(
+                    status_code=400, detail="plan_json is required for query_type=plan"
+                )
             try:
                 outcome = tool_execute_query_plan(dataset, request.plan_json)
                 plan_json = outcome.get("plan_json")
@@ -1491,7 +1545,9 @@ def create_app(
         response = ChatResponse(
             assistant_message="Run submitted and executed.",
             run_id=run_id,
-            status=status if status in {"succeeded", "failed", "rejected"} else "failed",
+            status=(
+                status if status in {"succeeded", "failed", "rejected"} else "failed"
+            ),
             result={
                 "columns": raw_result.get("columns", []),
                 "rows": raw_result.get("rows", []),

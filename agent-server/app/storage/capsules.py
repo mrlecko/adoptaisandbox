@@ -68,12 +68,24 @@ def insert_capsule(db_path: str, capsule: Dict[str, Any]) -> None:
                 capsule.get("dataset_version_hash"),
                 capsule.get("question"),
                 capsule["query_mode"],
-                json.dumps(capsule.get("plan_json")) if capsule.get("plan_json") is not None else None,
+                (
+                    json.dumps(capsule.get("plan_json"))
+                    if capsule.get("plan_json") is not None
+                    else None
+                ),
                 capsule.get("compiled_sql"),
                 capsule.get("python_code"),
                 capsule["status"],
-                json.dumps(capsule.get("result_json")) if capsule.get("result_json") is not None else None,
-                json.dumps(capsule.get("error_json")) if capsule.get("error_json") is not None else None,
+                (
+                    json.dumps(capsule.get("result_json"))
+                    if capsule.get("result_json") is not None
+                    else None
+                ),
+                (
+                    json.dumps(capsule.get("error_json"))
+                    if capsule.get("error_json") is not None
+                    else None
+                ),
                 capsule.get("exec_time_ms"),
             ),
         )

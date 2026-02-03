@@ -10,7 +10,9 @@ from typing import Any, Dict, Optional
 
 class Executor(ABC):
     @abstractmethod
-    def submit_run(self, payload: Dict[str, Any], query_type: str = "sql") -> Dict[str, Any]:
+    def submit_run(
+        self, payload: Dict[str, Any], query_type: str = "sql"
+    ) -> Dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod

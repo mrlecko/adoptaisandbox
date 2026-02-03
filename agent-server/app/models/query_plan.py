@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class FilterOperator(str, Enum):
     """Supported filter operators."""
+
     EQ = "="
     NE = "!="
     LT = "<"
@@ -29,6 +30,7 @@ class FilterOperator(str, Enum):
 
 class AggregationFunction(str, Enum):
     """Supported aggregation functions."""
+
     COUNT = "count"
     COUNT_DISTINCT = "count_distinct"
     SUM = "sum"
@@ -39,6 +41,7 @@ class AggregationFunction(str, Enum):
 
 class SortDirection(str, Enum):
     """Sort direction."""
+
     ASC = "asc"
     DESC = "desc"
 
@@ -55,14 +58,15 @@ class Filter(BaseModel):
         Filter(column="name", op="contains", value="wireless")
         Filter(column="resolved_at", op="is_null")
     """
+
     column: str = Field(..., description="Column name to filter on")
     op: FilterOperator = Field(..., description="Filter operator")
     value: Optional[Union[str, int, float, bool, List[Any]]] = Field(
         None,
-        description="Value to compare against (not needed for is_null/is_not_null)"
+        description="Value to compare against (not needed for is_null/is_not_null)",
     )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_operator_value(self):
         """Validate that value is provided when required."""
         if self.op in [FilterOperator.IS_NULL, FilterOperator.IS_NOT_NULL]:
@@ -79,7 +83,9 @@ class Filter(BaseModel):
 
         if self.op == FilterOperator.BETWEEN:
             if not isinstance(self.value, list) or len(self.value) != 2:
-                raise ValueError("Operator 'between' requires a list of exactly 2 values")
+                raise ValueError(
+                    "Operator 'between' requires a list of exactly 2 values"
+                )
 
         return self
 
@@ -91,11 +97,12 @@ class SelectColumn(BaseModel):
     For simple columns, just specify the column name.
     For computed/aliased columns, use the 'expr' field.
     """
+
     column: Optional[str] = Field(None, description="Column name for simple select")
     expr: Optional[str] = Field(None, description="SQL expression for computed columns")
     alias: Optional[str] = Field(None, description="Alias for the column")
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_column_or_expr(self):
         """Ensure either column or expr is provided."""
         if not self.column and not self.expr:
@@ -112,6 +119,7 @@ class Aggregation(BaseModel):
         Aggregation(func="count", column="order_id", alias="order_count")
         Aggregation(func="avg", column="price", alias="avg_price")
     """
+
     func: AggregationFunction = Field(..., description="Aggregation function")
     column: str = Field(..., description="Column to aggregate")
     alias: str = Field(..., description="Alias for the aggregated result")
@@ -125,11 +133,9 @@ class OrderBy(BaseModel):
         OrderBy(expr="total_revenue", direction="desc")
         OrderBy(expr="customer_id", direction="asc")
     """
+
     expr: str = Field(..., description="Column name or alias to sort by")
-    direction: SortDirection = Field(
-        SortDirection.ASC,
-        description="Sort direction"
-    )
+    direction: SortDirection = Field(SortDirection.ASC, description="Sort direction")
 
 
 class QueryPlan(BaseModel):
@@ -149,42 +155,35 @@ class QueryPlan(BaseModel):
             limit=10
         )
     """
+
     dataset_id: str = Field(..., description="Dataset identifier")
     table: str = Field(..., description="Primary table name")
 
     select: Optional[List[Union[SelectColumn, Aggregation]]] = Field(
-        None,
-        description="Columns to select (simple or aggregated)"
+        None, description="Columns to select (simple or aggregated)"
     )
 
     filters: Optional[List[Filter]] = Field(
-        default_factory=list,
-        description="Filter conditions (WHERE clause)"
+        default_factory=list, description="Filter conditions (WHERE clause)"
     )
 
     group_by: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Columns to group by"
+        default_factory=list, description="Columns to group by"
     )
 
     order_by: Optional[List[OrderBy]] = Field(
-        default_factory=list,
-        description="Sort specification"
+        default_factory=list, description="Sort specification"
     )
 
     limit: Optional[int] = Field(
-        200,
-        ge=1,
-        le=1000,
-        description="Maximum rows to return (enforced, default 200)"
+        200, ge=1, le=1000, description="Maximum rows to return (enforced, default 200)"
     )
 
     notes: Optional[str] = Field(
-        None,
-        description="Optional explanation from the model about the query"
+        None, description="Optional explanation from the model about the query"
     )
 
-    @field_validator('select')
+    @field_validator("select")
     @classmethod
     def validate_select(cls, v):
         """Ensure select is not empty if provided."""
@@ -192,7 +191,7 @@ class QueryPlan(BaseModel):
             raise ValueError("Select list cannot be empty if provided")
         return v
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_aggregations(self):
         """
         Validate aggregation rules:
@@ -209,7 +208,8 @@ class QueryPlan(BaseModel):
         if has_agg and has_simple:
             # Mixed: need group_by
             simple_columns = [
-                s.column for s in self.select
+                s.column
+                for s in self.select
                 if isinstance(s, SelectColumn) and s.column
             ]
             if not self.group_by:
@@ -237,6 +237,7 @@ class QueryType(str, Enum):
     - PYTHON: Python code (future, sandboxed)
     - JSON_QUERY: Custom JSON query language (future)
     """
+
     PLAN = "plan"
     SQL = "sql"
     PYTHON = "python"  # Future
@@ -263,11 +264,9 @@ class QueryRequest(BaseModel):
             sql="SELECT * FROM orders LIMIT 10"
         )
     """
+
     dataset_id: str = Field(..., description="Dataset to query")
-    query_type: QueryType = Field(
-        QueryType.PLAN,
-        description="Type of query"
-    )
+    query_type: QueryType = Field(QueryType.PLAN, description="Type of query")
 
     # Query content (only one should be provided based on query_type)
     plan: Optional[QueryPlan] = Field(None, description="Structured query plan")
@@ -275,20 +274,12 @@ class QueryRequest(BaseModel):
     python_code: Optional[str] = Field(None, description="Python code (future)")
 
     # Execution parameters
-    timeout_seconds: Optional[int] = Field(
-        10,
-        ge=1,
-        le=60,
-        description="Query timeout"
-    )
+    timeout_seconds: Optional[int] = Field(10, ge=1, le=60, description="Query timeout")
     max_rows: Optional[int] = Field(
-        200,
-        ge=1,
-        le=1000,
-        description="Maximum rows to return"
+        200, ge=1, le=1000, description="Maximum rows to return"
     )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_query_content(self):
         """Ensure appropriate query content is provided for the query type."""
         if self.query_type == QueryType.PLAN:
@@ -317,44 +308,41 @@ EXAMPLE_QUERY_PLANS = {
     "simple_select": QueryPlan(
         dataset_id="ecommerce",
         table="orders",
-        select=[
-            SelectColumn(column="order_id"),
-            SelectColumn(column="total")
-        ],
-        filters=[
-            Filter(column="status", op=FilterOperator.EQ, value="completed")
-        ],
+        select=[SelectColumn(column="order_id"), SelectColumn(column="total")],
+        filters=[Filter(column="status", op=FilterOperator.EQ, value="completed")],
         order_by=[OrderBy(expr="total", direction=SortDirection.DESC)],
-        limit=10
+        limit=10,
     ),
-
     "aggregation": QueryPlan(
         dataset_id="ecommerce",
         table="order_items",
         select=[
             SelectColumn(column="category"),
-            Aggregation(func=AggregationFunction.SUM, column="price", alias="total_revenue"),
-            Aggregation(func=AggregationFunction.COUNT, column="item_id", alias="item_count")
+            Aggregation(
+                func=AggregationFunction.SUM, column="price", alias="total_revenue"
+            ),
+            Aggregation(
+                func=AggregationFunction.COUNT, column="item_id", alias="item_count"
+            ),
         ],
         group_by=["category"],
         order_by=[OrderBy(expr="total_revenue", direction=SortDirection.DESC)],
-        limit=20
+        limit=20,
     ),
-
     "complex_filters": QueryPlan(
         dataset_id="support",
         table="tickets",
         select=[
             SelectColumn(column="ticket_id"),
             SelectColumn(column="priority"),
-            SelectColumn(column="created_at")
+            SelectColumn(column="created_at"),
         ],
         filters=[
             Filter(column="status", op=FilterOperator.EQ, value="Open"),
             Filter(column="priority", op=FilterOperator.IN, value=["High", "Critical"]),
-            Filter(column="created_at", op=FilterOperator.GTE, value="2024-01-01")
+            Filter(column="created_at", op=FilterOperator.GTE, value="2024-01-01"),
         ],
         order_by=[OrderBy(expr="created_at", direction=SortDirection.ASC)],
-        limit=50
-    )
+        limit=50,
+    ),
 }

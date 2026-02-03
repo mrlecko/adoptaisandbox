@@ -53,7 +53,9 @@ class MicroSandboxExecutor(Executor):
         repo_root = Path(__file__).resolve().parents[3]
         runner_dir = repo_root / "runner"
         if not runner_dir.exists():
-            raise RuntimeError(f"Runner directory not found for fallback execution: {runner_dir}")
+            raise RuntimeError(
+                f"Runner directory not found for fallback execution: {runner_dir}"
+            )
         return runner_dir
 
     def _rpc_url(self) -> str:
@@ -106,7 +108,9 @@ class MicroSandboxExecutor(Executor):
             timeout=30,
         )
         if response.status_code >= 400:
-            raise RuntimeError(f"{method} HTTP {response.status_code}: {response.text[:500]}")
+            raise RuntimeError(
+                f"{method} HTTP {response.status_code}: {response.text[:500]}"
+            )
         payload = response.json()
         if payload.get("error"):
             message = payload["error"].get("message", "unknown RPC error")
@@ -132,7 +136,9 @@ class MicroSandboxExecutor(Executor):
         return sandbox_name
 
     def _build_runner_code(self, payload: Dict[str, Any], query_type: str) -> str:
-        runner_path = "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
+        runner_path = (
+            "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
+        )
         payload_str = json.dumps(payload)
         timeout = int(payload.get("timeout_seconds", self.timeout_seconds)) + 5
         return (
@@ -174,7 +180,9 @@ class MicroSandboxExecutor(Executor):
         )
 
     def _build_fallback_script(self, payload: Dict[str, Any], query_type: str) -> str:
-        runner_path = "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
+        runner_path = (
+            "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
+        )
         payload_json = json.dumps(payload)
         timeout_seconds = int(payload.get("timeout_seconds", self.timeout_seconds))
         process_timeout = timeout_seconds + 2
@@ -213,8 +221,12 @@ class MicroSandboxExecutor(Executor):
             "    }))\n"
         )
 
-    def _run_via_cli_fallback(self, payload: Dict[str, Any], query_type: str) -> Dict[str, Any]:
-        msb_cli = os.getenv("MSB_CLI_PATH") or str(Path.home() / ".local" / "bin" / "msb")
+    def _run_via_cli_fallback(
+        self, payload: Dict[str, Any], query_type: str
+    ) -> Dict[str, Any]:
+        msb_cli = os.getenv("MSB_CLI_PATH") or str(
+            Path.home() / ".local" / "bin" / "msb"
+        )
         if not Path(msb_cli).exists():
             msb_cli = "msb"
 
@@ -225,7 +237,9 @@ class MicroSandboxExecutor(Executor):
 
         with tempfile.TemporaryDirectory(prefix="msb_exec_") as tmp_dir:
             script_path = Path(tmp_dir) / "execute_runner.py"
-            script_path.write_text(self._build_fallback_script(payload, query_type), encoding="utf-8")
+            script_path.write_text(
+                self._build_fallback_script(payload, query_type), encoding="utf-8"
+            )
 
             cmd = [
                 msb_cli,
@@ -307,7 +321,9 @@ class MicroSandboxExecutor(Executor):
             },
         }
 
-    def submit_run(self, payload: Dict[str, Any], query_type: str = "sql") -> Dict[str, Any]:
+    def submit_run(
+        self, payload: Dict[str, Any], query_type: str = "sql"
+    ) -> Dict[str, Any]:
         run_id = str(uuid.uuid4())
         self._status[run_id] = {"run_id": run_id, "status": "running"}
         sandbox_name: Optional[str] = None
@@ -322,7 +338,8 @@ class MicroSandboxExecutor(Executor):
                     "namespace": self.namespace,
                     "language": "python",
                     "code": self._build_runner_code(payload, query_type),
-                    "timeout": int(payload.get("timeout_seconds", self.timeout_seconds)) + 5,
+                    "timeout": int(payload.get("timeout_seconds", self.timeout_seconds))
+                    + 5,
                 },
             )
             stdout, stderr = self._extract_output(repl_result)
@@ -342,9 +359,7 @@ class MicroSandboxExecutor(Executor):
                         "stderr_trunc": "",
                         "error": {
                             "type": "RUNNER_INTERNAL_ERROR",
-                            "message": (
-                                f"{exc} | cli fallback failed: {fallback_exc}"
-                            ),
+                            "message": (f"{exc} | cli fallback failed: {fallback_exc}"),
                         },
                     }
             else:
@@ -385,7 +400,11 @@ class MicroSandboxExecutor(Executor):
             "run_id": run_id,
             "status": "succeeded" if result.get("status") == "success" else "failed",
         }
-        return {"run_id": run_id, "status": self._status[run_id]["status"], "result": result}
+        return {
+            "run_id": run_id,
+            "status": self._status[run_id]["status"],
+            "result": result,
+        }
 
     def get_status(self, run_id: str) -> Dict[str, Any]:
         return self._status.get(run_id, {"run_id": run_id, "status": "not_found"})

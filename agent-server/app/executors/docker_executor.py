@@ -59,7 +59,9 @@ class DockerExecutor(Executor):
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or "Docker daemon is not reachable")
 
-    def submit_run(self, payload: Dict[str, Any], query_type: str = "sql") -> Dict[str, Any]:
+    def submit_run(
+        self, payload: Dict[str, Any], query_type: str = "sql"
+    ) -> Dict[str, Any]:
         run_id = str(uuid.uuid4())
         self._status[run_id] = {"run_id": run_id, "status": "running"}
 
@@ -136,7 +138,11 @@ class DockerExecutor(Executor):
             "run_id": run_id,
             "status": "succeeded" if result.get("status") == "success" else "failed",
         }
-        return {"run_id": run_id, "status": self._status[run_id]["status"], "result": result}
+        return {
+            "run_id": run_id,
+            "status": self._status[run_id]["status"],
+            "result": result,
+        }
 
     def get_status(self, run_id: str) -> Dict[str, Any]:
         return self._status.get(run_id, {"run_id": run_id, "status": "not_found"})

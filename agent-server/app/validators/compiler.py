@@ -16,6 +16,7 @@ from ..models.query_plan import (
 
 class CompilationError(Exception):
     """Raised when QueryPlan cannot be compiled to valid SQL."""
+
     pass
 
 
@@ -233,7 +234,7 @@ class QueryPlanCompiler:
         identifier = identifier.strip('"')
 
         # Basic validation: alphanumeric + underscore
-        if not all(c.isalnum() or c == '_' for c in identifier):
+        if not all(c.isalnum() or c == "_" for c in identifier):
             raise CompilationError(
                 f"Invalid identifier: {identifier}. "
                 "Only alphanumeric and underscore allowed."
@@ -288,9 +289,7 @@ class QueryPlanCompiler:
             True if query seems safe, False if suspicious
         """
         # If using aggregations, generally safe
-        has_agg = any(
-            isinstance(s, Aggregation) for s in (plan.select or [])
-        )
+        has_agg = any(isinstance(s, Aggregation) for s in (plan.select or []))
         if has_agg:
             return True
 
