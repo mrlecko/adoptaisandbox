@@ -154,6 +154,72 @@ async def test_get_datasets_returns_registry_entries(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_request_id_header_is_attached(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        response = await client.get("/healthz")
+        assert response.status_code == 200
+        req_id = response.headers.get("x-request-id")
+        assert req_id
+        assert req_id.startswith("req-") or len(req_id) >= 8
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_metrics_endpoint_exposes_http_and_turn_counters(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        # Generate a baseline request + chat turn
+        health = await client.get("/healthz")
+        assert health.status_code == 200
+
+        chat = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        assert chat.status_code == 200
+
+        metrics = await client.get("/metrics")
+        assert metrics.status_code == 200
+        body = metrics.text
+        assert "csv_analyst_http_requests_total" in body
+        assert 'endpoint="/healthz"' in body
+        assert "csv_analyst_agent_turns_total" in body
+        assert 'endpoint="/chat"' in body
+        assert 'input_mode="sql"' in body
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_metrics_endpoint_exposes_sandbox_run_counter(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        run = await client.post(
+            "/runs",
+            json={
+                "dataset_id": "support",
+                "query_type": "sql",
+                "sql": "SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        assert run.status_code == 200
+
+        metrics = await client.get("/metrics")
+        assert metrics.status_code == 200
+        body = metrics.text
+        assert "csv_analyst_sandbox_runs_total" in body
+        assert 'provider="docker"' in body
+        assert 'query_mode="sql"' in body
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
 async def test_get_dataset_schema_returns_schema(tmp_path):
     client, _ = await _make_client(tmp_path)
     try:

@@ -104,6 +104,7 @@ MLflow notes:
 ## API Surface (Single-File Server)
 
 - `GET /healthz`
+- `GET /metrics` (Prometheus text format)
 - `GET /datasets`
 - `GET /datasets/{dataset_id}/schema`
 - `POST /runs`
@@ -177,6 +178,19 @@ Defined in `.env.example`:
 - `STORAGE_PROVIDER` (`sqlite` currently)
 - `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)
 - `MLFLOW_OPENAI_AUTOLOG`, `MLFLOW_TRACKING_URI`, `MLFLOW_EXPERIMENT_NAME` (optional OpenAI autolog tracing)
+
+## Telemetry Quickstart
+
+- Request correlation:
+  - Every response includes `x-request-id` (server-generated when missing).
+  - Structured logs include `request_id`; chat/run logs also include thread/run identifiers.
+- Metrics endpoint:
+  - `GET /metrics` exposes Prometheus counters/histograms.
+  - Key metrics:
+    - `csv_analyst_http_requests_total`
+    - `csv_analyst_http_request_duration_seconds`
+    - `csv_analyst_agent_turns_total`
+    - `csv_analyst_sandbox_runs_total`
 
 ## Project Structure
 

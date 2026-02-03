@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Phase-0 telemetry baseline:
+  - Request correlation id middleware (`x-request-id`)
+  - Structured JSON request lifecycle logs
+  - Prometheus metrics endpoint (`GET /metrics`) with HTTP, chat-turn, and sandbox-run counters
 - LangChain/LangGraph tool-calling agent architecture (`app/agent.py`, `app/tools.py`, `app/llm.py`) replacing the earlier single-pass planner flow
 - Targeted regression coverage for multi-turn ecommerce follow-up behavior and recursion-limit failure prevention paths
 - MLflow tracing integration for chat turns, including per-session metadata (`mlflow.trace.user`, `mlflow.trace.session`)
@@ -104,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated test/UI integration assertion for the current static UI shell text
 - Updated project test counts to reflect live-enabled full-suite pass (`155/155`)
 - Updated requirements to `mlflow[genai]` for GenAI tracing extras
+- Updated requirements with `prometheus-client` for production metrics export
 - Updated README with current tool-calling architecture status and detailed MLflow run/troubleshooting guidance
 - Updated agent tracing flow so `/chat` and `/chat/stream` traces include request payload input context (prompt + dataset + mode)
 

@@ -15,11 +15,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Literal, Optional
 
 import anyio
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, model_validator
 
@@ -38,8 +39,58 @@ try:
 except Exception:  # pragma: no cover
     load_dotenv = None
 
+try:
+    from prometheus_client import (
+        CONTENT_TYPE_LATEST,
+        Counter,
+        Histogram,
+        generate_latest,
+    )
+except Exception:  # pragma: no cover
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
+    Counter = None
+    Histogram = None
+    generate_latest = None
+
 
 LOGGER = logging.getLogger("csv-analyst-agent-server")
+
+HTTP_REQUESTS_TOTAL = (
+    Counter(
+        "csv_analyst_http_requests_total",
+        "Total HTTP requests by method, endpoint, and status code.",
+        ["method", "endpoint", "status"],
+    )
+    if Counter
+    else None
+)
+HTTP_REQUEST_DURATION_SECONDS = (
+    Histogram(
+        "csv_analyst_http_request_duration_seconds",
+        "HTTP request duration in seconds by method and endpoint.",
+        ["method", "endpoint"],
+    )
+    if Histogram
+    else None
+)
+AGENT_TURNS_TOTAL = (
+    Counter(
+        "csv_analyst_agent_turns_total",
+        "Completed chat turns by endpoint, input mode, and status.",
+        ["endpoint", "input_mode", "status"],
+    )
+    if Counter
+    else None
+)
+SANDBOX_RUNS_TOTAL = (
+    Counter(
+        "csv_analyst_sandbox_runs_total",
+        "Sandbox execution attempts by provider, query mode, and status.",
+        ["provider", "query_mode", "status"],
+    )
+    if Counter
+    else None
+)
 
 
 # ── Settings ──────────────────────────────────────────────────────────────
@@ -122,6 +173,41 @@ class RunSubmitRequest(BaseModel):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", "unknown")
+
+
+def _endpoint_label(request: Request) -> str:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    if isinstance(path, str) and path:
+        return path
+    return request.url.path
+
+
+def _metric_inc(counter: Any, **labels: str) -> None:
+    if counter is None:
+        return
+    try:
+        counter.labels(**labels).inc()
+    except Exception:  # pragma: no cover
+        pass
+
+
+def _metric_observe(histogram: Any, value: float, **labels: str) -> None:
+    if histogram is None:
+        return
+    try:
+        histogram.labels(**labels).observe(value)
+    except Exception:  # pragma: no cover
+        pass
+
+
+def _log_structured(level: int, event: str, **fields: Any) -> None:
+    payload: Dict[str, Any] = {"event": event, **fields}
+    LOGGER.log(level, json.dumps(payload, default=str, sort_keys=True))
 
 
 def _configure_mlflow_tracing(settings: Settings) -> None:
@@ -532,11 +618,89 @@ def create_app(
     # ── FastAPI app ─────────────────────────────────────────────────────
     app = FastAPI(title="CSV Analyst Agent Server")
 
+    @app.middleware("http")
+    async def telemetry_middleware(request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or f"req-{uuid.uuid4()}"
+        request.state.request_id = request_id
+        start = perf_counter()
+        status_code = 500
+
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+        except Exception as exc:
+            duration_seconds = perf_counter() - start
+            endpoint = _endpoint_label(request)
+            _metric_inc(
+                HTTP_REQUESTS_TOTAL,
+                method=request.method,
+                endpoint=endpoint,
+                status=str(status_code),
+            )
+            _metric_observe(
+                HTTP_REQUEST_DURATION_SECONDS,
+                duration_seconds,
+                method=request.method,
+                endpoint=endpoint,
+            )
+            _log_structured(
+                logging.ERROR,
+                "http.request.exception",
+                request_id=request_id,
+                thread_id=None,
+                run_id=None,
+                method=request.method,
+                endpoint=endpoint,
+                status_code=status_code,
+                duration_ms=int(duration_seconds * 1000),
+                error=str(exc),
+            )
+            raise
+
+        duration_seconds = perf_counter() - start
+        endpoint = _endpoint_label(request)
+        _metric_inc(
+            HTTP_REQUESTS_TOTAL,
+            method=request.method,
+            endpoint=endpoint,
+            status=str(status_code),
+        )
+        _metric_observe(
+            HTTP_REQUEST_DURATION_SECONDS,
+            duration_seconds,
+            method=request.method,
+            endpoint=endpoint,
+        )
+        response.headers["x-request-id"] = request_id
+        _log_structured(
+            logging.INFO,
+            "http.request.completed",
+            request_id=request_id,
+            thread_id=None,
+            run_id=None,
+            method=request.method,
+            endpoint=endpoint,
+            status_code=status_code,
+            duration_ms=int(duration_seconds * 1000),
+        )
+        return response
+
     # ── routes ──────────────────────────────────────────────────────────
 
     @app.get("/healthz")
     async def healthz():
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics():
+        if generate_latest is None:
+            raise HTTPException(
+                status_code=503, detail="Prometheus metrics unavailable"
+            )
+        return PlainTextResponse(
+            content=generate_latest().decode("utf-8"),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     @app.get("/datasets")
     async def list_datasets():
@@ -575,7 +739,7 @@ def create_app(
         return {"id": ds["id"], "name": ds["name"], "files": files}
 
     @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest):
+    async def chat(request: ChatRequest, raw_request: Request):
         msg = request.message.strip()
         thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
         user_id = request.user_id or "anonymous"
@@ -589,106 +753,143 @@ def create_app(
             ),
         }
         request_scoped = request.model_copy(update={"thread_id": thread_id})
+        req_id = _request_id(raw_request)
+        _log_structured(
+            logging.INFO,
+            "chat.request.received",
+            request_id=req_id,
+            dataset_id=request.dataset_id,
+            thread_id=thread_id,
+            input_mode=trace_meta["input_mode"],
+        )
+
+        def _finalize(resp: Dict[str, Any]) -> Dict[str, Any]:
+            _metric_inc(
+                AGENT_TURNS_TOTAL,
+                endpoint="/chat",
+                input_mode=trace_meta["input_mode"],
+                status=str(resp.get("status", "failed")),
+            )
+            _log_structured(
+                logging.INFO,
+                "chat.request.completed",
+                request_id=req_id,
+                dataset_id=request.dataset_id,
+                thread_id=resp.get("thread_id", thread_id),
+                run_id=resp.get("run_id"),
+                input_mode=trace_meta["input_mode"],
+                status=resp.get("status"),
+            )
+            return resp
+
         # Fast paths: explicit SQL: or PYTHON: prefix
         if msg.lower().startswith("sql:"):
             sql = msg.split(":", 1)[1].strip()
-            return _run_with_mlflow_session_trace(
-                settings=settings,
-                span_name="chat.turn",
-                user_id=user_id,
-                session_id=thread_id,
-                metadata=trace_meta,
-                trace_input={
-                    "dataset_id": request.dataset_id,
-                    "message": request.message,
-                    "thread_id": thread_id,
-                    "input_mode": trace_meta["input_mode"],
-                },
-                fn=lambda: _execute_direct(
-                    sandbox_executor,
-                    settings,
-                    message_store,
-                    settings.capsule_db_path,
-                    request_scoped,
-                    "sql",
-                    sql=sql,
-                ),
+            return _finalize(
+                _run_with_mlflow_session_trace(
+                    settings=settings,
+                    span_name="chat.turn",
+                    user_id=user_id,
+                    session_id=thread_id,
+                    metadata=trace_meta,
+                    trace_input={
+                        "dataset_id": request.dataset_id,
+                        "message": request.message,
+                        "thread_id": thread_id,
+                        "input_mode": trace_meta["input_mode"],
+                    },
+                    fn=lambda: _execute_direct(
+                        sandbox_executor,
+                        settings,
+                        message_store,
+                        settings.capsule_db_path,
+                        request_scoped,
+                        "sql",
+                        sql=sql,
+                    ),
+                )
             )
         if msg.lower().startswith("python:"):
             code = msg.split(":", 1)[1].strip()
-            return _run_with_mlflow_session_trace(
-                settings=settings,
-                span_name="chat.turn",
-                user_id=user_id,
-                session_id=thread_id,
-                metadata=trace_meta,
-                trace_input={
-                    "dataset_id": request.dataset_id,
-                    "message": request.message,
-                    "thread_id": thread_id,
-                    "input_mode": trace_meta["input_mode"],
-                },
-                fn=lambda: _execute_direct(
-                    sandbox_executor,
-                    settings,
-                    message_store,
-                    settings.capsule_db_path,
-                    request_scoped,
-                    "python",
-                    python_code=code,
-                ),
+            return _finalize(
+                _run_with_mlflow_session_trace(
+                    settings=settings,
+                    span_name="chat.turn",
+                    user_id=user_id,
+                    session_id=thread_id,
+                    metadata=trace_meta,
+                    trace_input={
+                        "dataset_id": request.dataset_id,
+                        "message": request.message,
+                        "thread_id": thread_id,
+                        "input_mode": trace_meta["input_mode"],
+                    },
+                    fn=lambda: _execute_direct(
+                        sandbox_executor,
+                        settings,
+                        message_store,
+                        settings.capsule_db_path,
+                        request_scoped,
+                        "python",
+                        python_code=code,
+                    ),
+                )
             )
         # Agent path
         try:
-            return _run_with_mlflow_session_trace(
-                settings=settings,
-                span_name="chat.turn",
-                user_id=user_id,
-                session_id=thread_id,
-                metadata=trace_meta,
-                trace_input={
-                    "dataset_id": request.dataset_id,
-                    "message": request.message,
-                    "thread_id": thread_id,
-                    "input_mode": trace_meta["input_mode"],
-                },
-                fn=lambda: session.run_agent(
-                    request.dataset_id, request.message, thread_id
-                ),
+            return _finalize(
+                _run_with_mlflow_session_trace(
+                    settings=settings,
+                    span_name="chat.turn",
+                    user_id=user_id,
+                    session_id=thread_id,
+                    metadata=trace_meta,
+                    trace_input={
+                        "dataset_id": request.dataset_id,
+                        "message": request.message,
+                        "thread_id": thread_id,
+                        "input_mode": trace_meta["input_mode"],
+                    },
+                    fn=lambda: session.run_agent(
+                        request.dataset_id, request.message, thread_id
+                    ),
+                )
             )
         except GraphRecursionError:
             # Defensive guard; AgentSession already handles this path.
-            return {
-                "assistant_message": (
-                    "I hit an internal reasoning limit while refining that request. "
-                    "Please rephrase with explicit fields/tables."
-                ),
-                "run_id": str(uuid.uuid4()),
-                "thread_id": thread_id,
-                "status": "failed",
-                "result": {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": 0,
-                    "exec_time_ms": 0,
-                    "error": {
-                        "type": "AGENT_RECURSION_LIMIT",
-                        "message": "Agent reached recursion limit before completion.",
+            return _finalize(
+                {
+                    "assistant_message": (
+                        "I hit an internal reasoning limit while refining that request. "
+                        "Please rephrase with explicit fields/tables."
+                    ),
+                    "run_id": str(uuid.uuid4()),
+                    "thread_id": thread_id,
+                    "status": "failed",
+                    "result": {
+                        "columns": [],
+                        "rows": [],
+                        "row_count": 0,
+                        "exec_time_ms": 0,
+                        "error": {
+                            "type": "AGENT_RECURSION_LIMIT",
+                            "message": "Agent reached recursion limit before completion.",
+                        },
                     },
-                },
-                "details": {
-                    "dataset_id": request.dataset_id,
-                    "query_mode": "chat",
-                    "plan_json": None,
-                    "compiled_sql": None,
-                    "python_code": None,
-                },
-            }
+                    "details": {
+                        "dataset_id": request.dataset_id,
+                        "query_mode": "chat",
+                        "plan_json": None,
+                        "compiled_sql": None,
+                        "python_code": None,
+                    },
+                }
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/chat/stream")
-    async def chat_stream(request: StreamRequest):
+    async def chat_stream(request: StreamRequest, raw_request: Request):
         def sse(event: str, payload: Dict[str, Any]) -> str:
             # LangGraph event payloads can include non-JSON-native objects
             # (e.g., ToolMessage instances). Convert unknown objects to strings
@@ -708,6 +909,15 @@ def create_app(
             ),
         }
         request_scoped = request.model_copy(update={"thread_id": thread_id})
+        req_id = _request_id(raw_request)
+        _log_structured(
+            logging.INFO,
+            "chat.stream.request.received",
+            request_id=req_id,
+            dataset_id=request.dataset_id,
+            thread_id=thread_id,
+            input_mode=trace_meta["input_mode"],
+        )
 
         # Fast paths emit synthetic events
         if msg.lower().startswith("sql:") or msg.lower().startswith("python:"):
@@ -761,6 +971,22 @@ def create_app(
                             python_code=code,
                         ),
                     )
+                _metric_inc(
+                    AGENT_TURNS_TOTAL,
+                    endpoint="/chat/stream",
+                    input_mode=trace_meta["input_mode"],
+                    status=str(resp.get("status", "failed")),
+                )
+                _log_structured(
+                    logging.INFO,
+                    "chat.stream.request.completed",
+                    request_id=req_id,
+                    dataset_id=request.dataset_id,
+                    thread_id=resp.get("thread_id", thread_id),
+                    run_id=resp.get("run_id"),
+                    input_mode=trace_meta["input_mode"],
+                    status=resp.get("status"),
+                )
                 yield sse("status", {"stage": "planning"})
                 yield sse("status", {"stage": "executing"})
                 yield sse("result", resp)
@@ -792,10 +1018,32 @@ def create_app(
                         ),
                     ),
                 )
+                _metric_inc(
+                    AGENT_TURNS_TOTAL,
+                    endpoint="/chat/stream",
+                    input_mode=trace_meta["input_mode"],
+                    status=str(response.get("status", "failed")),
+                )
+                _log_structured(
+                    logging.INFO,
+                    "chat.stream.request.completed",
+                    request_id=req_id,
+                    dataset_id=request.dataset_id,
+                    thread_id=response.get("thread_id", thread_id),
+                    run_id=response.get("run_id"),
+                    input_mode=trace_meta["input_mode"],
+                    status=response.get("status"),
+                )
                 yield sse("status", {"stage": "executing"})
                 yield sse("result", response)
                 yield sse("done", {"run_id": response["run_id"]})
             except GraphRecursionError as exc:
+                _metric_inc(
+                    AGENT_TURNS_TOTAL,
+                    endpoint="/chat/stream",
+                    input_mode=trace_meta["input_mode"],
+                    status="failed",
+                )
                 LOGGER.warning(
                     "Graph recursion limit hit during stream (thread=%s dataset=%s): %s",
                     thread_id,
@@ -814,9 +1062,21 @@ def create_app(
                 )
                 yield sse("done", {})
             except KeyError as exc:
+                _metric_inc(
+                    AGENT_TURNS_TOTAL,
+                    endpoint="/chat/stream",
+                    input_mode=trace_meta["input_mode"],
+                    status="failed",
+                )
                 yield sse("error", {"type": "NOT_FOUND", "message": str(exc)})
                 yield sse("done", {})
             except Exception as exc:  # pragma: no cover
+                _metric_inc(
+                    AGENT_TURNS_TOTAL,
+                    endpoint="/chat/stream",
+                    input_mode=trace_meta["input_mode"],
+                    status="failed",
+                )
                 LOGGER.exception(
                     "Unhandled stream error (thread=%s dataset=%s)",
                     thread_id,
@@ -828,7 +1088,15 @@ def create_app(
         return StreamingResponse(agent_stream(), media_type="text/event-stream")
 
     @app.post("/runs", response_model=ChatResponse)
-    async def submit_run(request: RunSubmitRequest):
+    async def submit_run(request: RunSubmitRequest, raw_request: Request):
+        req_id = _request_id(raw_request)
+        _log_structured(
+            logging.INFO,
+            "runs.request.received",
+            request_id=req_id,
+            dataset_id=request.dataset_id,
+            query_type=request.query_type,
+        )
         registry = load_registry(settings.datasets_dir)
         try:
             dataset = get_dataset_by_id(registry, request.dataset_id)
@@ -1009,6 +1277,22 @@ def create_app(
                 "error_json": response.result.get("error"),
                 "exec_time_ms": response.result.get("exec_time_ms", 0),
             },
+        )
+        _metric_inc(
+            SANDBOX_RUNS_TOTAL,
+            provider=settings.sandbox_provider,
+            query_mode=query_mode,
+            status=response.status,
+        )
+        _log_structured(
+            logging.INFO,
+            "runs.request.completed",
+            request_id=req_id,
+            run_id=run_id,
+            dataset_id=request.dataset_id,
+            query_mode=query_mode,
+            status=response.status,
+            sandbox_provider=settings.sandbox_provider,
         )
         return response
 
