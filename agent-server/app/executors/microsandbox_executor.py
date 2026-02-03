@@ -176,9 +176,10 @@ class MicroSandboxExecutor(Executor):
     def _build_fallback_script(self, payload: Dict[str, Any], query_type: str) -> str:
         runner_path = "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
         payload_json = json.dumps(payload)
-        timeout = int(payload.get("timeout_seconds", self.timeout_seconds)) + 5
+        timeout_seconds = int(payload.get("timeout_seconds", self.timeout_seconds))
+        process_timeout = timeout_seconds + 2
         return (
-            "import subprocess, sys\n"
+            "import json, subprocess, sys\n"
             "subprocess.run([\n"
             "    'python3',\n"
             "    '-m',\n"
@@ -192,9 +193,24 @@ class MicroSandboxExecutor(Executor):
             "], check=True)\n"
             f"payload = {payload_json!r}\n"
             f"cmd = ['python3', '{runner_path}']\n"
-            f"proc = subprocess.run(cmd, input=payload, text=True, capture_output=True, timeout={timeout})\n"
-            "sys.stdout.write(proc.stdout or '')\n"
-            "sys.stderr.write(proc.stderr or '')\n"
+            "try:\n"
+            f"    proc = subprocess.run(cmd, input=payload, text=True, capture_output=True, timeout={process_timeout})\n"
+            "    sys.stdout.write(proc.stdout or '')\n"
+            "    sys.stderr.write(proc.stderr or '')\n"
+            "except subprocess.TimeoutExpired:\n"
+            "    sys.stdout.write(json.dumps({\n"
+            "        'status': 'timeout',\n"
+            "        'columns': [],\n"
+            "        'rows': [],\n"
+            "        'row_count': 0,\n"
+            "        'exec_time_ms': 0,\n"
+            "        'stdout_trunc': '',\n"
+            "        'stderr_trunc': '',\n"
+            "        'error': {\n"
+            "            'type': 'RUNNER_TIMEOUT',\n"
+            f"            'message': 'Query exceeded timeout of {timeout_seconds} seconds',\n"
+            "        },\n"
+            "    }))\n"
         )
 
     def _run_via_cli_fallback(self, payload: Dict[str, Any], query_type: str) -> Dict[str, Any]:
