@@ -90,6 +90,7 @@ async def test_home_serves_static_ui(tmp_path):
         body = response.text
         assert "CSV Analyst Chat (Minimal)" in body
         assert "id=\"dataset\"" in body
+        assert "id=\"messages\"" in body
         assert "/chat/stream" in body
         assert "Suggested prompts:" in body
     finally:
@@ -119,6 +120,85 @@ async def test_chat_sql_happy_path_creates_capsule(tmp_path):
         run_payload = run_response.json()
         assert run_payload["run_id"] == run_id
         assert run_payload["status"] == "succeeded"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_greeting_does_not_execute_runner(tmp_path):
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("Runner should not be called for greeting messages")
+
+    client = await _make_client(tmp_path, runner_executor=should_not_run)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "Hi",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "rejected"
+        assert payload["details"]["query_mode"] == "chat"
+        assert payload["result"]["row_count"] == 0
+        assert payload["result"]["error"]["type"] == "LLM_UNAVAILABLE"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_schema_question_does_not_execute_runner(tmp_path):
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("Runner should not be called for schema-only messages")
+
+    client = await _make_client(tmp_path, runner_executor=should_not_run)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "What columns are in this dataset?",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "rejected"
+        assert payload["details"]["query_mode"] == "chat"
+        assert "llm service unavailable" in payload["assistant_message"].lower()
+        assert payload["result"]["row_count"] == 0
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_mode_from_llm_does_not_execute_runner(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **__):
+        return {
+            "query_mode": "chat",
+            "assistant_message": "Hi there! How can I help with your dataset today?",
+        }
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("Runner should not be called for chat-mode responses")
+
+    client = await _make_client(tmp_path, runner_executor=should_not_run)
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "Hi"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "chat"
+        assert "hi there" in payload["assistant_message"].lower()
+        assert payload["result"]["row_count"] == 0
     finally:
         await client.aclose()
 
@@ -218,7 +298,7 @@ async def test_chat_non_sql_accepts_dict_draft_from_llm(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_chat_non_executable_draft_falls_back_safely(tmp_path, monkeypatch):
+async def test_chat_non_executable_draft_without_rescue_returns_clarification(tmp_path, monkeypatch):
     from app import main as app_main
 
     def fake_generate(*_, **__):
@@ -242,10 +322,11 @@ async def test_chat_non_executable_draft_falls_back_safely(tmp_path, monkeypatch
 
         assert response.status_code == 200
         payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "plan"
-        assert payload["assistant_message"] == "LLM unavailable or invalid response; executed a safe fallback query."
-        assert payload["details"]["compiled_sql"]
+        assert payload["status"] == "rejected"
+        assert payload["details"]["query_mode"] == "chat"
+        assert "llm service unavailable or returned an invalid response" in payload["assistant_message"].lower()
+        assert payload["result"]["error"]["type"] == "LLM_UNAVAILABLE"
+        assert payload["details"]["compiled_sql"] is None
     finally:
         await client.aclose()
 

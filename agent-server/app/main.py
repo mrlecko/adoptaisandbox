@@ -96,7 +96,7 @@ class RunSubmitRequest(BaseModel):
 class AgentDraft(BaseModel):
     """Structured output target for optional LLM query generation."""
 
-    query_mode: Literal["plan", "sql"] = "plan"
+    query_mode: Literal["plan", "sql", "chat"] = "plan"
     assistant_message: str = "Done."
     plan: Optional[QueryPlan] = None
     sql: Optional[str] = None
@@ -337,7 +337,9 @@ def _generate_with_langchain(
             (
                 "system",
                 (
-                    "You are a careful data analyst. Default to query_mode='plan' with a valid QueryPlan. "
+                    "You are a careful data analyst. Choose query_mode='chat' when the user asks for "
+                    "greetings, capabilities, clarification, or schema/metadata that can be answered "
+                    "without running a query. Otherwise default to query_mode='plan' with a valid QueryPlan. "
                     "Only use query_mode='sql' when the user explicitly asks for SQL. "
                     "Always keep LIMIT <= {max_rows}."
                 ),
@@ -850,7 +852,7 @@ def create_app(
         explicit_python = request.message.strip().lower().startswith("python:")
         implicit_python = _is_python_intent(request.message) and not explicit_sql
 
-        query_mode: Literal["sql", "plan", "python"] = "sql" if explicit_sql else "plan"
+        query_mode: Literal["sql", "plan", "python", "chat"] = "sql" if explicit_sql else "plan"
         assistant_message = "Executed query."
         plan_json = None
         compiled_sql = None
@@ -987,6 +989,46 @@ def create_app(
             if draft:
                 query_mode = draft.query_mode
                 assistant_message = draft.assistant_message
+                if query_mode == "chat":
+                    response = ChatResponse(
+                        assistant_message=assistant_message,
+                        run_id=run_id,
+                        status="succeeded",
+                        result={
+                            "columns": [],
+                            "rows": [],
+                            "row_count": 0,
+                            "exec_time_ms": 0,
+                            "error": None,
+                        },
+                        details={
+                            "dataset_id": request.dataset_id,
+                            "query_mode": "chat",
+                            "plan_json": None,
+                            "compiled_sql": None,
+                            "python_code": None,
+                        },
+                    )
+                    _insert_capsule(
+                        services.settings.capsule_db_path,
+                        {
+                            "run_id": run_id,
+                            "created_at": _utc_now_iso(),
+                            "dataset_id": request.dataset_id,
+                            "dataset_version_hash": dataset.get("version_hash"),
+                            "question": request.message,
+                            "query_mode": "chat",
+                            "plan_json": None,
+                            "compiled_sql": None,
+                            "python_code": None,
+                            "status": response.status,
+                            "result_json": response.result,
+                            "error_json": None,
+                            "exec_time_ms": 0,
+                        },
+                    )
+                    _log_event("chat.completed", run_id=run_id, status=response.status, query_mode="chat")
+                    return response
                 if query_mode == "sql":
                     sql = draft.sql or ""
                 else:
@@ -1012,13 +1054,53 @@ def create_app(
                     assistant_message = rescue.assistant_message
                     sql = rescue.sql
                 else:
-                    plan = _fallback_plan(request.dataset_id, dataset, services.settings.max_rows)
-                    plan_json = plan.model_dump()
-                    compiled_sql = services.compiler.compile(plan)
-                    sql = compiled_sql
-                    assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
+                    response = ChatResponse(
+                        assistant_message=(
+                            "LLM service unavailable or returned an invalid response. "
+                            "Please try again, or use explicit `SQL:` / `PYTHON:`."
+                        ),
+                        run_id=run_id,
+                        status="rejected",
+                        result={
+                            "columns": [],
+                            "rows": [],
+                            "row_count": 0,
+                            "exec_time_ms": 0,
+                            "error": {
+                                "type": "LLM_UNAVAILABLE",
+                                "message": "LLM service unavailable or returned invalid response.",
+                            },
+                        },
+                        details={
+                            "dataset_id": request.dataset_id,
+                            "query_mode": "chat",
+                            "plan_json": None,
+                            "compiled_sql": None,
+                            "python_code": None,
+                        },
+                    )
+                    _insert_capsule(
+                        services.settings.capsule_db_path,
+                        {
+                            "run_id": run_id,
+                            "created_at": _utc_now_iso(),
+                            "dataset_id": request.dataset_id,
+                            "dataset_version_hash": dataset.get("version_hash"),
+                            "question": request.message,
+                            "query_mode": "chat",
+                            "plan_json": None,
+                            "compiled_sql": None,
+                            "python_code": None,
+                            "status": response.status,
+                            "result_json": response.result,
+                            "error_json": response.result.get("error"),
+                            "exec_time_ms": 0,
+                        },
+                    )
+                    _log_event("chat.rejected", run_id=run_id, reason="llm_unavailable_or_invalid")
+                    return response
 
-        if query_mode != "python":
+        if query_mode not in {"python", "chat"}:
             sql = _normalize_sql_for_dataset(sql, request.dataset_id)
 
             status_cb("validating")
@@ -1277,6 +1359,13 @@ def create_app(
     table, th, td { border: 1px solid #ddd; border-collapse: collapse; padding: .25rem .5rem; }
     #status { color: #555; margin-bottom: .75rem; }
     pre { background: #f6f6f6; padding: .5rem; overflow-x: auto; }
+    #messages { border: 1px solid #ddd; background: #fafafa; height: 320px; overflow-y: auto; padding: .75rem; margin-bottom: 1rem; }
+    .msg-row { display: flex; margin: .35rem 0; }
+    .msg-row.user { justify-content: flex-start; }
+    .msg-row.assistant { justify-content: flex-end; }
+    .msg-bubble { max-width: 75%; border-radius: 12px; padding: .5rem .75rem; white-space: pre-wrap; }
+    .msg-bubble.user { background: #e9eefc; }
+    .msg-bubble.assistant { background: #e7f6ea; }
   </style>
 </head>
 <body>
@@ -1284,17 +1373,29 @@ def create_app(
   <label>Dataset</label>
   <select id="dataset"></select>
   <div id="prompts"></div>
+  <h3>Messages</h3>
+  <div id="messages"></div>
   <label>Message</label>
   <textarea id="message" rows="4" placeholder="Ask a question, SQL: SELECT ..., or PYTHON: result = ..."></textarea>
   <button id="send">Send</button>
   <div id="status"></div>
-  <h3>Assistant</h3>
-  <pre id="assistant"></pre>
   <h3>Result</h3>
   <div id="result"></div>
   <h3>Details</h3>
   <pre id="details"></pre>
   <script>
+    function appendMessage(actor, text) {
+      const list = document.getElementById('messages');
+      const row = document.createElement('div');
+      row.className = `msg-row ${actor}`;
+      const bubble = document.createElement('div');
+      bubble.className = `msg-bubble ${actor}`;
+      bubble.textContent = text;
+      row.appendChild(bubble);
+      list.appendChild(row);
+      list.scrollTop = list.scrollHeight;
+    }
+
     async function loadDatasets() {
       const res = await fetch('/datasets');
       const data = await res.json();
@@ -1346,7 +1447,7 @@ def create_app(
 
     function updateFromPayload(data) {
       document.getElementById('status').textContent = `Status: ${data.status}`;
-      document.getElementById('assistant').textContent = data.assistant_message;
+      appendMessage('assistant', data.assistant_message || '');
       document.getElementById('result').innerHTML = renderTable(data.result.columns, data.result.rows);
       document.getElementById('details').textContent = JSON.stringify(data.details, null, 2);
     }
@@ -1354,6 +1455,9 @@ def create_app(
     document.getElementById('send').onclick = async () => {
       const dataset_id = document.getElementById('dataset').value;
       const message = document.getElementById('message').value;
+      if (!message.trim()) return;
+      appendMessage('user', message);
+      document.getElementById('message').value = '';
       document.getElementById('status').textContent = 'Streaming...';
       const res = await fetch('/chat/stream', {
         method: 'POST',
@@ -1389,6 +1493,7 @@ def create_app(
           } else if (eventName === 'result') {
             updateFromPayload(parsed);
           } else if (eventName === 'error') {
+            appendMessage('assistant', parsed.message || 'Unknown error');
             document.getElementById('status').textContent = `Error: ${parsed.message || 'unknown'}`;
           }
         }

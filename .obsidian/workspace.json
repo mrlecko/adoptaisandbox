@@ -201,6 +201,8 @@
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
     "agent-server/capsules.db-journal",
+    "tests/integration/__pycache__/test_agent_server_singlefile.cpython-311-pytest-7.4.4.pyc.136015",
+    "agent-server/app/__pycache__/main.cpython-311.pyc.134908976746480",
     "tests/integration/__pycache__/test_docker_executor_integration.cpython-311-pytest-7.4.4.pyc",
     "tests/integration/__pycache__/test_runner_container.cpython-311-pytest-7.4.4.pyc",
     "tests/integration/test_docker_executor_integration.py",
@@ -209,8 +211,6 @@
     "runner/__pycache__/common.cpython-311.pyc",
     "runner/__pycache__/runner_python.cpython-311.pyc",
     "runner/__pycache__/runner.cpython-311.pyc",
-    "runner/__pycache__/__init__.cpython-311.pyc",
-    "runner/__pycache__",
     "PYTHON_EXECUTION_SPEC.md",
     "AGENT_SERVER_SPECIFICATION.md",
     "docs/PROJECT_STATUS.md",
