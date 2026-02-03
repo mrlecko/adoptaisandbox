@@ -127,6 +127,7 @@ class Settings(BaseModel):
     k8s_poll_interval_seconds: float = Field(default=0.25)
     storage_provider: str = Field(default="sqlite")
     thread_history_window: int = Field(default=12)
+    mlflow_enabled: bool = Field(default=False)
     mlflow_tracking_uri: Optional[str] = Field(default=None)
     mlflow_experiment_name: str = Field(default="CSV Analyst Agent")
     mlflow_openai_autolog: bool = Field(default=False)
@@ -226,6 +227,8 @@ def _log_structured(level: int, event: str, **fields: Any) -> None:
 
 def _configure_mlflow_tracing(settings: Settings) -> None:
     """Enable MLflow GenAI tracing for OpenAI calls when configured."""
+    if not settings.mlflow_enabled:
+        return
     if not settings.mlflow_openai_autolog:
         return
     if not settings.mlflow_tracking_uri:
@@ -266,6 +269,8 @@ def _run_with_mlflow_session_trace(
     fn: Any,
 ) -> Any:
     """Execute `fn` inside an MLflow trace and attach user/session metadata."""
+    if not settings.mlflow_enabled:
+        return fn()
     if not settings.mlflow_tracking_uri:
         return fn()
 
@@ -361,8 +366,10 @@ def _execute_direct(
             }
         else:
             raw = execute_in_sandbox(
-                executor, dataset,
-                query_type="sql", sql=sql,
+                executor,
+                dataset,
+                query_type="sql",
+                sql=sql,
                 timeout_seconds=settings.run_timeout_seconds,
                 max_rows=settings.max_rows,
                 max_output_bytes=settings.max_output_bytes,
@@ -396,8 +403,10 @@ def _execute_direct(
             }
         else:
             raw = execute_in_sandbox(
-                executor, dataset,
-                query_type="python", python_code=python_code,
+                executor,
+                dataset,
+                query_type="python",
+                python_code=python_code,
                 timeout_seconds=settings.run_timeout_seconds,
                 max_rows=settings.max_rows,
                 max_output_bytes=settings.max_output_bytes,
@@ -565,6 +574,7 @@ def create_app(
         k8s_poll_interval_seconds=float(os.getenv("K8S_POLL_INTERVAL_SECONDS", "0.25")),
         storage_provider=os.getenv("STORAGE_PROVIDER", "sqlite"),
         thread_history_window=int(os.getenv("THREAD_HISTORY_WINDOW", "12")),
+        mlflow_enabled=os.getenv("MLFLOW_ENABLED", "false").lower() == "true",
         mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI"),
         mlflow_experiment_name=os.getenv("MLFLOW_EXPERIMENT_NAME", "CSV Analyst Agent"),
         mlflow_openai_autolog=os.getenv("MLFLOW_OPENAI_AUTOLOG", "false").lower()
@@ -1057,7 +1067,9 @@ def create_app(
                 "chat.stream.request.completed",
                 request_id=req_id,
                 dataset_id=request.dataset_id,
-                thread_id=response.get("thread_id", thread_id) if response else thread_id,
+                thread_id=(
+                    response.get("thread_id", thread_id) if response else thread_id
+                ),
                 run_id=response.get("run_id") if response else None,
                 input_mode=trace_meta["input_mode"],
                 status=response.get("status") if response else "failed",
@@ -1109,8 +1121,10 @@ def create_app(
                 status = "rejected"
             else:
                 raw = execute_in_sandbox(
-                    sandbox_executor, dataset,
-                    query_type="sql", sql=sql,
+                    sandbox_executor,
+                    dataset,
+                    query_type="sql",
+                    sql=sql,
                     timeout_seconds=settings.run_timeout_seconds,
                     max_rows=settings.max_rows,
                     max_output_bytes=settings.max_output_bytes,
@@ -1148,8 +1162,10 @@ def create_app(
                 status = "rejected"
             else:
                 raw = execute_in_sandbox(
-                    sandbox_executor, dataset,
-                    query_type="python", python_code=request.python_code,
+                    sandbox_executor,
+                    dataset,
+                    query_type="python",
+                    python_code=request.python_code,
                     timeout_seconds=settings.run_timeout_seconds,
                     max_rows=settings.max_rows,
                     max_output_bytes=settings.max_output_bytes,
@@ -1197,8 +1213,10 @@ def create_app(
                 status = "rejected"
             else:
                 raw = execute_in_sandbox(
-                    sandbox_executor, dataset,
-                    query_type="sql", sql=sql,
+                    sandbox_executor,
+                    dataset,
+                    query_type="sql",
+                    sql=sql,
                     timeout_seconds=settings.run_timeout_seconds,
                     max_rows=settings.max_rows,
                     max_output_bytes=settings.max_output_bytes,

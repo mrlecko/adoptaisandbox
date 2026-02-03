@@ -14,12 +14,16 @@ from app.main import (  # noqa: E402
 
 
 def test_configure_mlflow_tracing_noop_when_disabled(monkeypatch):
-    settings = Settings(mlflow_openai_autolog=False, mlflow_tracking_uri=None)
+    settings = Settings(
+        mlflow_enabled=False, mlflow_openai_autolog=False, mlflow_tracking_uri=None
+    )
     _configure_mlflow_tracing(settings)
 
 
 def test_configure_mlflow_tracing_noop_without_uri(monkeypatch):
-    settings = Settings(mlflow_openai_autolog=True, mlflow_tracking_uri=None)
+    settings = Settings(
+        mlflow_enabled=True, mlflow_openai_autolog=True, mlflow_tracking_uri=None
+    )
     _configure_mlflow_tracing(settings)
 
 
@@ -38,6 +42,7 @@ def test_configure_mlflow_tracing_enables_openai_autolog(monkeypatch):
     monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
 
     settings = Settings(
+        mlflow_enabled=True,
         mlflow_openai_autolog=True,
         mlflow_tracking_uri="http://localhost:5000",
         mlflow_experiment_name="CSV Analyst Agent",
@@ -50,7 +55,29 @@ def test_configure_mlflow_tracing_enables_openai_autolog(monkeypatch):
 
 
 def test_run_with_mlflow_session_trace_noop_without_uri():
-    settings = Settings(mlflow_openai_autolog=False, mlflow_tracking_uri=None)
+    settings = Settings(
+        mlflow_enabled=True, mlflow_openai_autolog=False, mlflow_tracking_uri=None
+    )
+    assert (
+        _run_with_mlflow_session_trace(
+            settings=settings,
+            span_name="chat.turn",
+            user_id="user-1",
+            session_id="thread-1",
+            metadata={"dataset_id": "support"},
+            trace_input={"message": "hello"},
+            fn=lambda: "ok",
+        )
+        == "ok"
+    )
+
+
+def test_run_with_mlflow_session_trace_noop_when_disabled():
+    settings = Settings(
+        mlflow_enabled=False,
+        mlflow_openai_autolog=True,
+        mlflow_tracking_uri="http://localhost:5000",
+    )
     assert (
         _run_with_mlflow_session_trace(
             settings=settings,
@@ -89,6 +116,7 @@ def test_run_with_mlflow_session_trace_sets_user_session_metadata(monkeypatch):
     monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
 
     settings = Settings(
+        mlflow_enabled=True,
         mlflow_openai_autolog=False,
         mlflow_tracking_uri="http://localhost:5000",
     )

@@ -36,6 +36,8 @@ Important arrangement:
 
 ## Quick Start
 
+For a strict, copy/paste first-run guide, see `FIRST_RUN.md`.
+
 ### 1) Install dependencies
 
 ```bash
@@ -86,6 +88,7 @@ path is injected; this ensures MLflow can find `huey_consumer.py`.
 Then set in `.env` (repo root), and restart the agent server:
 
 ```bash
+MLFLOW_ENABLED=true
 MLFLOW_OPENAI_AUTOLOG=true
 MLFLOW_TRACKING_URI=http://localhost:5000
 MLFLOW_EXPERIMENT_NAME=CSV Analyst Agent
@@ -230,6 +233,7 @@ Defined in `.env.example`:
 - `STORAGE_PROVIDER` (`sqlite` currently)
 - `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)
 - `MLFLOW_OPENAI_AUTOLOG`, `MLFLOW_TRACKING_URI`, `MLFLOW_EXPERIMENT_NAME` (optional OpenAI autolog tracing)
+- `MLFLOW_ENABLED` (master on/off switch for all MLflow tracing)
 
 ## Telemetry Quickstart
 
