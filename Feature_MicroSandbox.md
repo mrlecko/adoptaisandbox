@@ -21,7 +21,7 @@ Add MicroSandbox as an execution backend option, while keeping Docker support.
 
 - [x] Confirm MicroSandbox host/runtime prerequisites in target environments (dev + prod-like)
 - [x] Confirm auth model (`MSB_API_KEY`) and endpoint config for all environments
-- [~] Lock contract parity requirements with current Docker executor:
+- [x] Lock contract parity requirements with current Docker executor:
   - [x] Timeout semantics
   - [x] Error type mapping
   - [x] Output truncation behavior
@@ -93,7 +93,7 @@ Add MicroSandbox as an execution backend option, while keeping Docker support.
   - [x] Python query end-to-end
   - [x] Policy rejection path
   - [x] Timeout path
-- [~] Add provider matrix smoke coverage:
+- [x] Add provider matrix smoke coverage:
   - [x] `docker` provider run
   - [x] `microsandbox` provider run (live run behind `RUN_MICROSANDBOX_TESTS=1`)
 

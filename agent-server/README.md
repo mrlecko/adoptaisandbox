@@ -90,7 +90,9 @@ make test-agent-server
 # MicroSandbox provider tests (unit + optional live integration)
 make test-microsandbox
 # to run live MicroSandbox integration checks:
-RUN_MICROSANDBOX_TESTS=1 make test-microsandbox
+RUN_MICROSANDBOX_TESTS=1 MSB_SERVER_URL=http://127.0.0.1:5555/api/v1/rpc MSB_API_KEY=<your_key> make test-microsandbox
+# full suite with live MicroSandbox enabled:
+RUN_MICROSANDBOX_TESTS=1 MSB_SERVER_URL=http://127.0.0.1:5555/api/v1/rpc MSB_API_KEY=<your_key> make test
 
 # QueryPlan/compiler unit tests
 pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
@@ -110,4 +112,5 @@ This demonstrates the DSL and deterministic SQL compilation path used by the ser
 - Python sandbox execution is live behind `ENABLE_PYTHON_EXECUTION=true`.
 - `DockerExecutor` is implemented under `app/executors/` and validated with integration tests.
 - `MicroSandboxExecutor` is available and selected with `SANDBOX_PROVIDER=microsandbox`.
+- MicroSandbox path includes a CLI fallback (`MSB_CLI_PATH`, `MSB_FALLBACK_IMAGE`) when direct RPC execution is blocked by runtime/image constraints.
 - If Docker SDK transport fails in some environments, executor health-check falls back to Docker CLI.

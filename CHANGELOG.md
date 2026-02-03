@@ -76,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Executor factory wiring and app startup provider selection
 - New thread/history endpoint (`GET /threads/{thread_id}/messages`) and persisted stateful chat memory
 - MicroSandbox integration test suite scaffold (`tests/integration/test_microsandbox_executor_integration.py`) with SQL, Python, policy, timeout scenarios (opt-in)
+- MicroSandbox live-environment validation workflow (`RUN_MICROSANDBOX_TESTS=1`) and completion checklist updates
+- MicroSandbox executor CLI fallback path (`msb exe`) for environments where JSON-RPC image/runtime constraints block direct execution
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -95,6 +97,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `.env.example` with MicroSandbox configuration (`MSB_*`, `SANDBOX_PROVIDER`)
 - Updated Makefile with `run-agent-microsandbox` and `test-microsandbox` targets
 - Updated docs with MicroSandbox test toggles and troubleshooting guidance
+- Updated test/UI integration assertion for the current static UI shell text
+- Updated project test counts to reflect live-enabled full-suite pass (`155/155`)
 
 ### Deprecated
 - N/A
@@ -111,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dataset-qualified SQL table references (e.g., `support.tickets`) now normalize to runner-loaded table names
 - Agent server now supports explicit python execution mode and feature-flag rejection path
 - DockerExecutor now handles docker SDK transport incompatibilities with CLI health-check fallback
+- MicroSandbox executor now normalizes `cpus`/volume config for live server compatibility and surfaces RPC HTTP error payloads
+- MicroSandbox timeout classification now remains stable in live fallback mode
 
 ### Security
 - SQL injection prevention in QueryPlan compiler
