@@ -1581,12 +1581,31 @@ def create_app(
 
     function renderTable(columns, rows) {
       if (!columns || columns.length === 0) return '<em>No rows</em>';
+      function isMoneyColumn(colName) {
+        const c = String(colName || '').toLowerCase();
+        return /(revenue|price|amount|cost|total|sales|profit|discount)/.test(c);
+      }
+      function formatValue(colName, value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value !== 'number') return String(value);
+        if (Number.isInteger(value)) return String(value);
+        if (isMoneyColumn(colName)) return value.toFixed(2);
+        const asText = String(value);
+        if (asText.includes('.') && asText.split('.')[1].length > 6) {
+          return value.toFixed(6).replace(/0+$/, '').replace(/\\.$/, '');
+        }
+        return asText;
+      }
       let html = '<table><thead><tr>';
       for (const c of columns) html += `<th>${c}</th>`;
       html += '</tr></thead><tbody>';
       for (const r of rows) {
         html += '<tr>';
-        for (const v of r) html += `<td>${v ?? ''}</td>`;
+        for (let i = 0; i < columns.length; i++) {
+          const col = columns[i];
+          const v = i < r.length ? r[i] : null;
+          html += `<td>${formatValue(col, v)}</td>`;
+        }
         html += '</tr>';
       }
       html += '</tbody></table>';
