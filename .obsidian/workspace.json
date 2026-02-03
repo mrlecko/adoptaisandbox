@@ -200,6 +200,8 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
+    "docs/AGENTIFY_UPGRADE.md",
+    "docs/AGENTIFY_UPGRADE.md.tmp.24216.1770089059416",
     "agent-server/capsules.db-journal",
     "agent-server/app/static/index.html.tmp.24216.1770087625276",
     "agent-server/app/main.py.tmp.24216.1770086967029",
@@ -209,8 +211,6 @@
     "agent-server/app/static",
     "tests/integration/__pycache__/test_microsandbox_executor_integration.cpython-311-pytest-7.4.4.pyc",
     "tests/integration/test_microsandbox_executor_integration.py",
-    "tests/unit/__pycache__/test_sandbox_provider_selection.cpython-311-pytest-7.4.4.pyc",
-    "tests/unit/test_sandbox_provider_selection.py",
     "Feature_MicroSandbox.md",
     "PYTHON_EXECUTION_SPEC.md",
     "AGENT_SERVER_SPECIFICATION.md",

@@ -8,6 +8,9 @@ existing runner entrypoint inside it, and return a normalized RunnerResponse.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -45,6 +48,13 @@ class MicroSandboxExecutor(Executor):
 
         self._status: Dict[str, Dict[str, Any]] = {}
         self._results: Dict[str, Dict[str, Any]] = {}
+
+    def _runner_host_dir(self) -> Path:
+        repo_root = Path(__file__).resolve().parents[3]
+        runner_dir = repo_root / "runner"
+        if not runner_dir.exists():
+            raise RuntimeError(f"Runner directory not found for fallback execution: {runner_dir}")
+        return runner_dir
 
     def _rpc_url(self) -> str:
         server = self.server_url.strip()
@@ -95,7 +105,8 @@ class MicroSandboxExecutor(Executor):
             headers=headers,
             timeout=30,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise RuntimeError(f"{method} HTTP {response.status_code}: {response.text[:500]}")
         payload = response.json()
         if payload.get("error"):
             message = payload["error"].get("message", "unknown RPC error")
@@ -104,7 +115,7 @@ class MicroSandboxExecutor(Executor):
 
     def _start_sandbox(self, run_id: str) -> str:
         sandbox_name = f"csv-analyst-{run_id[:8]}"
-        volumes = [f"{Path(self.datasets_dir).resolve()}:/data:ro"]
+        volumes = [f"{Path(self.datasets_dir).resolve()}:/data"]
         self._rpc(
             "sandbox.start",
             {
@@ -113,7 +124,7 @@ class MicroSandboxExecutor(Executor):
                 "config": {
                     "image": self.runner_image,
                     "memory": self.memory_mb,
-                    "cpus": self.cpus,
+                    "cpus": max(1, int(round(self.cpus))),
                     "volumes": volumes,
                 },
             },
@@ -142,6 +153,97 @@ class MicroSandboxExecutor(Executor):
         )
         stderr = repl_result.get("stderr") or ""
         return str(stdout), str(stderr)
+
+    def _should_attempt_cli_fallback(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        if "not reachable" in msg:
+            return False
+        return any(
+            token in msg
+            for token in [
+                "http 400",
+                "http 401",
+                "http 403",
+                "http 404",
+                "http 500",
+                "unauthorized",
+                "unsupported registry",
+                "failed to connect to portal",
+                "internal server error",
+            ]
+        )
+
+    def _build_fallback_script(self, payload: Dict[str, Any], query_type: str) -> str:
+        runner_path = "/app/runner_python.py" if query_type == "python" else "/app/runner.py"
+        payload_json = json.dumps(payload)
+        timeout = int(payload.get("timeout_seconds", self.timeout_seconds)) + 5
+        return (
+            "import subprocess, sys\n"
+            "subprocess.run([\n"
+            "    'python3',\n"
+            "    '-m',\n"
+            "    'pip',\n"
+            "    'install',\n"
+            "    '--quiet',\n"
+            "    '--disable-pip-version-check',\n"
+            "    '--no-cache-dir',\n"
+            "    '-r',\n"
+            "    '/app/requirements.txt',\n"
+            "], check=True)\n"
+            f"payload = {payload_json!r}\n"
+            f"cmd = ['python3', '{runner_path}']\n"
+            f"proc = subprocess.run(cmd, input=payload, text=True, capture_output=True, timeout={timeout})\n"
+            "sys.stdout.write(proc.stdout or '')\n"
+            "sys.stderr.write(proc.stderr or '')\n"
+        )
+
+    def _run_via_cli_fallback(self, payload: Dict[str, Any], query_type: str) -> Dict[str, Any]:
+        msb_cli = os.getenv("MSB_CLI_PATH") or str(Path.home() / ".local" / "bin" / "msb")
+        if not Path(msb_cli).exists():
+            msb_cli = "msb"
+
+        fallback_image = os.getenv("MSB_FALLBACK_IMAGE", "python:3.11-slim")
+        datasets_dir = Path(self.datasets_dir).resolve()
+        runner_dir = self._runner_host_dir().resolve()
+        timeout = int(payload.get("timeout_seconds", self.timeout_seconds))
+
+        with tempfile.TemporaryDirectory(prefix="msb_exec_") as tmp_dir:
+            script_path = Path(tmp_dir) / "execute_runner.py"
+            script_path.write_text(self._build_fallback_script(payload, query_type), encoding="utf-8")
+
+            cmd = [
+                msb_cli,
+                "exe",
+                "--memory",
+                str(int(self.memory_mb)),
+                "--cpus",
+                str(max(1, int(round(self.cpus)))),
+                "--env",
+                "PIP_DISABLE_PIP_VERSION_CHECK=1",
+                "-v",
+                f"{datasets_dir}:/data",
+                "-v",
+                f"{runner_dir}:/app",
+                "-v",
+                f"{tmp_dir}:/tmp",
+                "-e",
+                "python3",
+                fallback_image,
+                "--",
+                "/tmp/execute_runner.py",
+            ]
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=max(timeout + 5, 120),
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(f"cli fallback timeout: {exc}") from exc
+
+            return self._parse_runner_output(proc.stdout or "", proc.stderr or "")
 
     def _parse_runner_output(self, stdout: str, stderr: str) -> Dict[str, Any]:
         trimmed = stdout.strip()
@@ -210,34 +312,54 @@ class MicroSandboxExecutor(Executor):
             stdout, stderr = self._extract_output(repl_result)
             result = self._parse_runner_output(stdout, stderr)
         except Exception as exc:
-            error_type = "RUNNER_INTERNAL_ERROR"
-            status = "error"
-            if "timeout" in str(exc).lower():
-                error_type = "RUNNER_TIMEOUT"
-                status = "timeout"
-            result = {
-                "status": status,
-                "columns": [],
-                "rows": [],
-                "row_count": 0,
-                "exec_time_ms": 0,
-                "stdout_trunc": "",
-                "stderr_trunc": "",
-                "error": {
-                    "type": error_type,
-                    "message": str(exc),
-                },
-            }
+            if self._should_attempt_cli_fallback(exc):
+                try:
+                    result = self._run_via_cli_fallback(payload, query_type)
+                except Exception as fallback_exc:
+                    result = {
+                        "status": "error",
+                        "columns": [],
+                        "rows": [],
+                        "row_count": 0,
+                        "exec_time_ms": 0,
+                        "stdout_trunc": "",
+                        "stderr_trunc": "",
+                        "error": {
+                            "type": "RUNNER_INTERNAL_ERROR",
+                            "message": (
+                                f"{exc} | cli fallback failed: {fallback_exc}"
+                            ),
+                        },
+                    }
+            else:
+                error_type = "RUNNER_INTERNAL_ERROR"
+                status = "error"
+                if "timeout" in str(exc).lower():
+                    error_type = "RUNNER_TIMEOUT"
+                    status = "timeout"
+                result = {
+                    "status": status,
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "stdout_trunc": "",
+                    "stderr_trunc": "",
+                    "error": {
+                        "type": error_type,
+                        "message": str(exc),
+                    },
+                }
         finally:
             if sandbox_name:
                 try:
                     self._rpc(
-                    "sandbox.stop",
-                    {
-                        "sandbox": sandbox_name,
-                        "namespace": self.namespace,
-                    },
-                )
+                        "sandbox.stop",
+                        {
+                            "sandbox": sandbox_name,
+                            "namespace": self.namespace,
+                        },
+                    )
                 except Exception:
                     # Best effort cleanup.
                     pass

@@ -75,6 +75,29 @@ def test_microsandbox_executor_submit_sql_success(monkeypatch):
     assert calls[-1][0] == "sandbox.stop"
 
 
+def test_microsandbox_executor_start_payload_normalized(monkeypatch):
+    captured = {}
+
+    def fake_rpc(self, method, params):  # noqa: ANN001
+        captured["method"] = method
+        captured["params"] = params
+        return {"ok": True}
+
+    monkeypatch.setattr(MicroSandboxExecutor, "_rpc", fake_rpc)
+    ex = MicroSandboxExecutor(
+        runner_image="csv-analyst-runner:test",
+        datasets_dir="datasets",
+        server_url="http://127.0.0.1:5555/api/v1/rpc",
+        cpus=1.6,
+    )
+    ex._start_sandbox("abc12345")  # noqa: SLF001
+
+    assert captured["method"] == "sandbox.start"
+    config = captured["params"]["config"]
+    assert config["cpus"] == 2
+    assert config["volumes"][0].endswith(":/data")
+
+
 def test_microsandbox_executor_submit_python_uses_python_runner(monkeypatch):
     captured_code = {"code": ""}
 
@@ -196,3 +219,45 @@ def test_microsandbox_executor_timeout_mapping(monkeypatch):
     assert out["status"] == "failed"
     assert out["result"]["status"] == "timeout"
     assert out["result"]["error"]["type"] == "RUNNER_TIMEOUT"
+
+
+def test_microsandbox_executor_cli_fallback_on_rpc_error(monkeypatch):
+    def fake_start(self, _run_id):  # noqa: ANN001
+        raise RuntimeError("sandbox.start HTTP 500: unsupported registry")
+
+    def fake_fallback(self, payload, query_type):  # noqa: ANN001
+        assert query_type == "sql"
+        assert payload["sql"] == "SELECT 1"
+        return {
+            "status": "success",
+            "columns": ["value"],
+            "rows": [[1]],
+            "row_count": 1,
+            "exec_time_ms": 12,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    monkeypatch.setattr(MicroSandboxExecutor, "_start_sandbox", fake_start)
+    monkeypatch.setattr(MicroSandboxExecutor, "_run_via_cli_fallback", fake_fallback)
+    monkeypatch.setattr(MicroSandboxExecutor, "_validate_connectivity", lambda self: None)
+
+    ex = MicroSandboxExecutor(
+        runner_image="csv-analyst-runner:test",
+        datasets_dir="datasets",
+        server_url="http://127.0.0.1:5555/api/v1/rpc",
+    )
+    out = ex.submit_run(
+        payload={
+            "dataset_id": "support",
+            "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+            "sql": "SELECT 1",
+            "timeout_seconds": 10,
+            "max_rows": 10,
+            "max_output_bytes": 1024,
+        },
+        query_type="sql",
+    )
+    assert out["status"] == "succeeded"
+    assert out["result"]["rows"] == [[1]]
