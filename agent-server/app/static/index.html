@@ -522,11 +522,21 @@
       : 'thread-' + Math.random().toString(36).slice(2, 12);
   }
 
+  function randomUserId() {
+    return 'user-' + Math.random().toString(36).slice(2, 12);
+  }
+
   function ensureThreadId() {
     let id = localStorage.getItem('csvAnalystThreadId');
     if (!id) { id = randomThreadId(); localStorage.setItem('csvAnalystThreadId', id); }
     window.threadId = id;
     document.getElementById('thread-id').textContent = 'Thread: ' + id;
+  }
+
+  function ensureUserId() {
+    let id = localStorage.getItem('csvAnalystUserId');
+    if (!id) { id = randomUserId(); localStorage.setItem('csvAnalystUserId', id); }
+    window.userId = id;
   }
 
   // ─── Status badge ─────────────────────────────────────
@@ -760,6 +770,7 @@
           dataset_id: document.getElementById('dataset').value,
           message,
           thread_id:  window.threadId,
+          user_id: window.userId,
         }),
       });
 
@@ -831,6 +842,7 @@
 
   // ─── Init ─────────────────────────────────────────────
   ensureThreadId();
+  ensureUserId();
   loadDatasets();
   loadThreadHistory();
 </script>

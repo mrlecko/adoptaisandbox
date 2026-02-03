@@ -110,6 +110,8 @@ Message modes:
 - `SQL: ...` for explicit SQL execution
 - `PYTHON: ...` for explicit Python sandbox execution (feature-flagged by `ENABLE_PYTHON_EXECUTION`)
 - Stateful conversations via `thread_id` (UI persists thread IDs in browser local storage)
+- Optional per-user trace metadata via `user_id` + `thread_id` on `/chat` and `/chat/stream` when MLflow tracking is enabled
+  - Static UI auto-generates a stable `user_id` in browser local storage (`csvAnalystUserId`)
 
 ## Testing
 

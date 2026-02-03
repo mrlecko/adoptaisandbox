@@ -8,6 +8,7 @@ import asyncio
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -208,6 +209,61 @@ async def test_chat_sql_happy_path_creates_capsule(tmp_path):
         assert run_response.status_code == 200
         assert run_response.json()["run_id"] == run_id
         assert run_response.json()["status"] == "succeeded"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_sql_sets_mlflow_session_trace_metadata(tmp_path, monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    def _trace(*, name):
+        def _decorator(fn):
+            def _wrapped(*args, **kwargs):
+                calls.append(("trace", name))
+                return fn(*args, **kwargs)
+
+            return _wrapped
+
+        return _decorator
+
+    def _update_current_trace(*, metadata):
+        calls.append(("metadata", metadata))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "mlflow",
+        SimpleNamespace(
+            trace=_trace,
+            update_current_trace=_update_current_trace,
+        ),
+    )
+
+    client, _ = await _make_client(
+        tmp_path,
+        settings_overrides={"mlflow_tracking_uri": "http://localhost:5000"},
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT COUNT(*) AS n FROM tickets",
+                "thread_id": "thread-mlflow-1",
+                "user_id": "user-mlflow-1",
+            },
+        )
+        assert response.status_code == 200
+
+        trace_name = next(value for key, value in calls if key == "trace")
+        metadata = next(value for key, value in calls if key == "metadata")
+
+        assert trace_name == "chat.turn"
+        assert metadata["mlflow.trace.user"] == "user-mlflow-1"
+        assert metadata["mlflow.trace.session"] == "thread-mlflow-1"
+        assert metadata["dataset_id"] == "support"
+        assert metadata["endpoint"] == "/chat"
+        assert metadata["input_mode"] == "sql"
     finally:
         await client.aclose()
 

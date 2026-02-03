@@ -22,7 +22,7 @@ aiosqlite>=0.20,<1.0  # For async capsule storage
 # Utilities
 python-multipart>=0.0.9,<0.1  # For file uploads (future)
 python-dotenv>=1.0,<2.0  # For .env support
-mlflow>=2.16,<4.0  # Observability, tracing, and experiment tracking
+mlflow[genai]>=2.16,<4.0  # Observability, tracing, and GenAI integrations
 
 # Testing
 pytest>=8,<9

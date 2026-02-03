@@ -93,6 +93,7 @@ class ChatRequest(BaseModel):
     dataset_id: str
     message: str
     thread_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -152,6 +153,45 @@ def _configure_mlflow_tracing(settings: Settings) -> None:
         LOGGER.warning(
             "Failed to enable MLflow tracing; continuing without it (%s).", exc
         )
+
+
+def _run_with_mlflow_session_trace(
+    *,
+    settings: Settings,
+    span_name: str,
+    user_id: str,
+    session_id: str,
+    metadata: Optional[Dict[str, Any]],
+    trace_input: Optional[Dict[str, Any]],
+    fn: Any,
+) -> Any:
+    """Execute `fn` inside an MLflow trace and attach user/session metadata."""
+    if not settings.mlflow_tracking_uri:
+        return fn()
+
+    try:
+        import mlflow
+    except Exception:
+        return fn()
+
+    trace_metadata: Dict[str, Any] = {
+        "mlflow.trace.user": user_id or "anonymous",
+        "mlflow.trace.session": session_id,
+    }
+    if metadata:
+        trace_metadata.update(metadata)
+
+    @mlflow.trace(name=span_name)
+    def _wrapped(input_payload: Optional[Dict[str, Any]] = None):
+        try:
+            mlflow.update_current_trace(metadata=trace_metadata)
+        except Exception:
+            # Do not fail request handling due to tracing metadata updates.
+            pass
+        _ = input_payload  # Input is carried for tracing capture only.
+        return fn()
+
+    return _wrapped(trace_input)
 
 
 def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -537,33 +577,85 @@ def create_app(
     @app.post("/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest):
         msg = request.message.strip()
+        thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
+        user_id = request.user_id or "anonymous"
+        trace_meta = {
+            "dataset_id": request.dataset_id,
+            "endpoint": "/chat",
+            "input_mode": (
+                "sql"
+                if msg.lower().startswith("sql:")
+                else "python" if msg.lower().startswith("python:") else "agent"
+            ),
+        }
+        request_scoped = request.model_copy(update={"thread_id": thread_id})
         # Fast paths: explicit SQL: or PYTHON: prefix
         if msg.lower().startswith("sql:"):
             sql = msg.split(":", 1)[1].strip()
-            return _execute_direct(
-                sandbox_executor,
-                settings,
-                message_store,
-                settings.capsule_db_path,
-                request,
-                "sql",
-                sql=sql,
+            return _run_with_mlflow_session_trace(
+                settings=settings,
+                span_name="chat.turn",
+                user_id=user_id,
+                session_id=thread_id,
+                metadata=trace_meta,
+                trace_input={
+                    "dataset_id": request.dataset_id,
+                    "message": request.message,
+                    "thread_id": thread_id,
+                    "input_mode": trace_meta["input_mode"],
+                },
+                fn=lambda: _execute_direct(
+                    sandbox_executor,
+                    settings,
+                    message_store,
+                    settings.capsule_db_path,
+                    request_scoped,
+                    "sql",
+                    sql=sql,
+                ),
             )
         if msg.lower().startswith("python:"):
             code = msg.split(":", 1)[1].strip()
-            return _execute_direct(
-                sandbox_executor,
-                settings,
-                message_store,
-                settings.capsule_db_path,
-                request,
-                "python",
-                python_code=code,
+            return _run_with_mlflow_session_trace(
+                settings=settings,
+                span_name="chat.turn",
+                user_id=user_id,
+                session_id=thread_id,
+                metadata=trace_meta,
+                trace_input={
+                    "dataset_id": request.dataset_id,
+                    "message": request.message,
+                    "thread_id": thread_id,
+                    "input_mode": trace_meta["input_mode"],
+                },
+                fn=lambda: _execute_direct(
+                    sandbox_executor,
+                    settings,
+                    message_store,
+                    settings.capsule_db_path,
+                    request_scoped,
+                    "python",
+                    python_code=code,
+                ),
             )
         # Agent path
-        thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
         try:
-            return session.run_agent(request.dataset_id, request.message, thread_id)
+            return _run_with_mlflow_session_trace(
+                settings=settings,
+                span_name="chat.turn",
+                user_id=user_id,
+                session_id=thread_id,
+                metadata=trace_meta,
+                trace_input={
+                    "dataset_id": request.dataset_id,
+                    "message": request.message,
+                    "thread_id": thread_id,
+                    "input_mode": trace_meta["input_mode"],
+                },
+                fn=lambda: session.run_agent(
+                    request.dataset_id, request.message, thread_id
+                ),
+            )
         except GraphRecursionError:
             # Defensive guard; AgentSession already handles this path.
             return {
@@ -605,6 +697,17 @@ def create_app(
 
         msg = request.message.strip()
         thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
+        user_id = request.user_id or "anonymous"
+        trace_meta = {
+            "dataset_id": request.dataset_id,
+            "endpoint": "/chat/stream",
+            "input_mode": (
+                "sql"
+                if msg.lower().startswith("sql:")
+                else "python" if msg.lower().startswith("python:") else "agent"
+            ),
+        }
+        request_scoped = request.model_copy(update={"thread_id": thread_id})
 
         # Fast paths emit synthetic events
         if msg.lower().startswith("sql:") or msg.lower().startswith("python:"):
@@ -612,25 +715,51 @@ def create_app(
             async def fast_stream():
                 if msg.lower().startswith("sql:"):
                     sql = msg.split(":", 1)[1].strip()
-                    resp = _execute_direct(
-                        sandbox_executor,
-                        settings,
-                        message_store,
-                        settings.capsule_db_path,
-                        request,
-                        "sql",
-                        sql=sql,
+                    resp = _run_with_mlflow_session_trace(
+                        settings=settings,
+                        span_name="chat.stream.turn",
+                        user_id=user_id,
+                        session_id=thread_id,
+                        metadata=trace_meta,
+                        trace_input={
+                            "dataset_id": request.dataset_id,
+                            "message": request.message,
+                            "thread_id": thread_id,
+                            "input_mode": trace_meta["input_mode"],
+                        },
+                        fn=lambda: _execute_direct(
+                            sandbox_executor,
+                            settings,
+                            message_store,
+                            settings.capsule_db_path,
+                            request_scoped,
+                            "sql",
+                            sql=sql,
+                        ),
                     )
                 else:
                     code = msg.split(":", 1)[1].strip()
-                    resp = _execute_direct(
-                        sandbox_executor,
-                        settings,
-                        message_store,
-                        settings.capsule_db_path,
-                        request,
-                        "python",
-                        python_code=code,
+                    resp = _run_with_mlflow_session_trace(
+                        settings=settings,
+                        span_name="chat.stream.turn",
+                        user_id=user_id,
+                        session_id=thread_id,
+                        metadata=trace_meta,
+                        trace_input={
+                            "dataset_id": request.dataset_id,
+                            "message": request.message,
+                            "thread_id": thread_id,
+                            "input_mode": trace_meta["input_mode"],
+                        },
+                        fn=lambda: _execute_direct(
+                            sandbox_executor,
+                            settings,
+                            message_store,
+                            settings.capsule_db_path,
+                            request_scoped,
+                            "python",
+                            python_code=code,
+                        ),
                     )
                 yield sse("status", {"stage": "planning"})
                 yield sse("status", {"stage": "executing"})
@@ -646,10 +775,22 @@ def create_app(
                 # and stream status/result events without hanging the request.
                 yield sse("status", {"stage": "planning"})
                 response = await anyio.to_thread.run_sync(
-                    session.run_agent,
-                    request.dataset_id,
-                    request.message,
-                    thread_id,
+                    lambda: _run_with_mlflow_session_trace(
+                        settings=settings,
+                        span_name="chat.stream.turn",
+                        user_id=user_id,
+                        session_id=thread_id,
+                        metadata=trace_meta,
+                        trace_input={
+                            "dataset_id": request.dataset_id,
+                            "message": request.message,
+                            "thread_id": thread_id,
+                            "input_mode": trace_meta["input_mode"],
+                        },
+                        fn=lambda: session.run_agent(
+                            request.dataset_id, request.message, thread_id
+                        ),
+                    ),
                 )
                 yield sse("status", {"stage": "executing"})
                 yield sse("result", response)
