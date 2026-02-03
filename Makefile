@@ -1,7 +1,7 @@
 # CSV Analyst Chat - Makefile
 # Common development tasks
 
-.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev agent-venv
+.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev run-mlflow agent-venv
 
 # Default target
 .DEFAULT_GOAL := help
@@ -11,6 +11,7 @@ AGENT_PYTHON := $(AGENT_VENV)/bin/python
 AGENT_PIP := $(AGENT_VENV)/bin/pip
 AGENT_PYTEST := $(AGENT_VENV)/bin/pytest
 AGENT_UVICORN := $(AGENT_VENV)/bin/uvicorn
+AGENT_MLFLOW := $(AGENT_VENV)/bin/mlflow
 AGENT_VENV_STAMP := $(AGENT_VENV)/.deps.stamp
 
 ##@ General
@@ -57,6 +58,9 @@ run-agent-dev: agent-venv ## Run single-file FastAPI agent server with auto-relo
 
 run-agent-microsandbox: agent-venv ## Run agent server with MicroSandbox provider
 	SANDBOX_PROVIDER=microsandbox $(AGENT_UVICORN) app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
+
+run-mlflow: agent-venv ## Run local MLflow tracking server (http://localhost:5000)
+	PATH="$(abspath $(AGENT_VENV))/bin:$$PATH" $(AGENT_MLFLOW) server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns
 
 ##@ Testing
 

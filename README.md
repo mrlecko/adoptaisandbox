@@ -75,6 +75,23 @@ make run-agent-dev
 
 Then open `http://localhost:8000`.
 
+Optional (observability):
+
+```bash
+make run-mlflow
+```
+
+Use the Make target (instead of invoking `mlflow` directly) so the venv bin
+path is injected; this ensures MLflow can find `huey_consumer.py`.
+
+Then set in `.env`:
+
+```bash
+MLFLOW_OPENAI_AUTOLOG=true
+MLFLOW_TRACKING_URI=http://localhost:5000
+MLFLOW_EXPERIMENT_NAME=CSV Analyst Agent
+```
+
 ## API Surface (Single-File Server)
 
 - `GET /healthz`
@@ -120,6 +137,7 @@ Current validated counts:
 - `make run-agent`
 - `make run-agent-dev`
 - `make run-agent-microsandbox`
+- `make run-mlflow`
 - `make test-agent-server`
 - `make test-runner`
 - `make test-microsandbox`
@@ -146,6 +164,7 @@ Defined in `.env.example`:
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
 - `STORAGE_PROVIDER` (`sqlite` currently)
 - `THREAD_HISTORY_WINDOW` (messages sent to LLM per thread)
+- `MLFLOW_OPENAI_AUTOLOG`, `MLFLOW_TRACKING_URI`, `MLFLOW_EXPERIMENT_NAME` (optional OpenAI autolog tracing)
 
 ## Project Structure
 

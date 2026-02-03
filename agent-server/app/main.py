@@ -20,6 +20,7 @@ from typing import Any, Dict, Literal, Optional
 import anyio
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, model_validator
 
 from .agent import AgentSession, build_agent
@@ -67,6 +68,9 @@ class Settings(BaseModel):
     msb_cpus: float = Field(default=1.0)
     storage_provider: str = Field(default="sqlite")
     thread_history_window: int = Field(default=12)
+    mlflow_tracking_uri: Optional[str] = Field(default=None)
+    mlflow_experiment_name: str = Field(default="CSV Analyst Agent")
+    mlflow_openai_autolog: bool = Field(default=False)
     log_level: str = Field(default="info")
 
     @model_validator(mode="after")
@@ -117,6 +121,37 @@ class RunSubmitRequest(BaseModel):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _configure_mlflow_tracing(settings: Settings) -> None:
+    """Enable MLflow GenAI tracing for OpenAI calls when configured."""
+    if not settings.mlflow_openai_autolog:
+        return
+    if not settings.mlflow_tracking_uri:
+        LOGGER.warning(
+            "MLflow autolog requested but MLFLOW_TRACKING_URI is not set; tracing disabled."
+        )
+        return
+
+    try:
+        import mlflow
+    except Exception as exc:  # pragma: no cover
+        LOGGER.warning("MLflow is unavailable; tracing disabled (%s).", exc)
+        return
+
+    try:
+        mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+        mlflow.set_experiment(settings.mlflow_experiment_name)
+        mlflow.openai.autolog()
+        LOGGER.info(
+            "MLflow OpenAI autolog enabled (uri=%s, experiment=%s).",
+            settings.mlflow_tracking_uri,
+            settings.mlflow_experiment_name,
+        )
+    except Exception as exc:
+        LOGGER.warning(
+            "Failed to enable MLflow tracing; continuing without it (%s).", exc
+        )
 
 
 def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -397,12 +432,17 @@ def create_app(
         msb_cpus=float(os.getenv("MSB_CPUS", "1.0")),
         storage_provider=os.getenv("STORAGE_PROVIDER", "sqlite"),
         thread_history_window=int(os.getenv("THREAD_HISTORY_WINDOW", "12")),
+        mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI"),
+        mlflow_experiment_name=os.getenv("MLFLOW_EXPERIMENT_NAME", "CSV Analyst Agent"),
+        mlflow_openai_autolog=os.getenv("MLFLOW_OPENAI_AUTOLOG", "false").lower()
+        == "true",
         log_level=os.getenv("LOG_LEVEL", "info"),
     )
 
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO)
     )
+    _configure_mlflow_tracing(settings)
 
     # ── storage ─────────────────────────────────────────────────────────
     init_capsule_db(settings.capsule_db_path)
@@ -524,6 +564,34 @@ def create_app(
         thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
         try:
             return session.run_agent(request.dataset_id, request.message, thread_id)
+        except GraphRecursionError:
+            # Defensive guard; AgentSession already handles this path.
+            return {
+                "assistant_message": (
+                    "I hit an internal reasoning limit while refining that request. "
+                    "Please rephrase with explicit fields/tables."
+                ),
+                "run_id": str(uuid.uuid4()),
+                "thread_id": thread_id,
+                "status": "failed",
+                "result": {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {
+                        "type": "AGENT_RECURSION_LIMIT",
+                        "message": "Agent reached recursion limit before completion.",
+                    },
+                },
+                "details": {
+                    "dataset_id": request.dataset_id,
+                    "query_mode": "chat",
+                    "plan_json": None,
+                    "compiled_sql": None,
+                    "python_code": None,
+                },
+            }
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -586,10 +654,33 @@ def create_app(
                 yield sse("status", {"stage": "executing"})
                 yield sse("result", response)
                 yield sse("done", {"run_id": response["run_id"]})
+            except GraphRecursionError as exc:
+                LOGGER.warning(
+                    "Graph recursion limit hit during stream (thread=%s dataset=%s): %s",
+                    thread_id,
+                    request.dataset_id,
+                    exc,
+                )
+                yield sse(
+                    "error",
+                    {
+                        "type": "AGENT_RECURSION_LIMIT",
+                        "message": (
+                            "I hit an internal reasoning limit while refining that request. "
+                            "Please retry with explicit fields/tables."
+                        ),
+                    },
+                )
+                yield sse("done", {})
             except KeyError as exc:
                 yield sse("error", {"type": "NOT_FOUND", "message": str(exc)})
                 yield sse("done", {})
             except Exception as exc:  # pragma: no cover
+                LOGGER.exception(
+                    "Unhandled stream error (thread=%s dataset=%s)",
+                    thread_id,
+                    request.dataset_id,
+                )
                 yield sse("error", {"type": "AGENT_ERROR", "message": str(exc)})
                 yield sse("done", {})
 

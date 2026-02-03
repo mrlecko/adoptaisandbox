@@ -7,17 +7,20 @@ import uuid
 
 import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langgraph.errors import GraphRecursionError
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "agent-server"))
 
 from app.agent import (  # noqa: E402
+    AgentSession,
     _extract_capsule_data,
     _history_to_messages,
     build_agent,
-    AgentSession,
 )
+from app.storage import create_message_store  # noqa: E402
+from app.storage.capsules import init_capsule_db, insert_capsule  # noqa: E402
 
 
 class MockLLM(BaseChatModel):
@@ -331,3 +334,94 @@ def test_build_agent_returns_runnable():
     # Last message should be the mocked response
     last = result["messages"][-1]
     assert last.content == "Hello!"
+
+
+class _SpyGraph:
+    def __init__(self):
+        self.last_payload = None
+
+    def invoke(self, payload):
+        self.last_payload = payload
+        return {"messages": [AIMessage(content="Done.")]}
+
+
+def test_run_agent_injects_last_successful_run_context(tmp_path):
+    db_path = tmp_path / "capsules.db"
+    init_capsule_db(str(db_path))
+    store = create_message_store("sqlite", str(db_path))
+    store.initialize()
+
+    prior_run = "prior-run-1"
+    insert_capsule(
+        str(db_path),
+        {
+            "run_id": prior_run,
+            "created_at": "2026-02-03T00:00:00+00:00",
+            "dataset_id": "support",
+            "dataset_version_hash": None,
+            "question": "How many tickets?",
+            "query_mode": "sql",
+            "plan_json": None,
+            "compiled_sql": "SELECT COUNT(*) AS n FROM tickets",
+            "python_code": None,
+            "status": "succeeded",
+            "result_json": {
+                "columns": ["n"],
+                "rows": [[42]],
+                "row_count": 1,
+                "exec_time_ms": 10,
+                "error": None,
+            },
+            "error_json": None,
+            "exec_time_ms": 10,
+        },
+    )
+    store.append_message(
+        thread_id="t1",
+        role="user",
+        content="How many tickets?",
+        dataset_id="support",
+        run_id=prior_run,
+    )
+    store.append_message(
+        thread_id="t1",
+        role="assistant",
+        content="There are 42 tickets.",
+        dataset_id="support",
+        run_id=prior_run,
+    )
+
+    graph = _SpyGraph()
+    session = AgentSession(graph, store, str(db_path), history_window=12)
+    response = session.run_agent("support", "give me those again with names", "t1")
+
+    assert response["status"] == "succeeded"
+    messages = graph.last_payload["messages"]
+    assert any(
+        isinstance(msg, SystemMessage)
+        and "Previous successful run context" in str(msg.content)
+        and "SELECT COUNT(*) AS n FROM tickets" in str(msg.content)
+        for msg in messages
+    )
+
+
+class _RecursingGraph:
+    def invoke(self, payload):
+        raise GraphRecursionError("Recursion limit reached")
+
+
+def test_run_agent_handles_graph_recursion_gracefully(tmp_path):
+    db_path = tmp_path / "capsules.db"
+    init_capsule_db(str(db_path))
+    store = create_message_store("sqlite", str(db_path))
+    store.initialize()
+
+    session = AgentSession(_RecursingGraph(), store, str(db_path), history_window=12)
+    response = session.run_agent("support", "join in product names", "t-rec")
+
+    assert response["status"] == "failed"
+    assert response["result"]["error"]["type"] == "AGENT_RECURSION_LIMIT"
+    assert "reasoning limit" in response["assistant_message"].lower()
+
+    history = store.get_messages(thread_id="t-rec", limit=10)
+    assert history[-1]["role"] == "assistant"

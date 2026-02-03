@@ -774,6 +774,108 @@ async def test_chat_thread_isolation(tmp_path):
         await client.aclose()
 
 
+@pytest.mark.anyio
+async def test_chat_ecommerce_followup_includes_product_name(tmp_path):
+    """Two-turn ecommerce follow-up should execute a second SQL query with inventory.name."""
+    top10_by_revenue = {
+        "run_id": "rev-1",
+        "status": "succeeded",
+        "result": {
+            "status": "success",
+            "columns": ["product_id", "revenue"],
+            "rows": [[340, 11442.93], [252, 7499.58], [296, 7102.40]],
+            "row_count": 3,
+            "exec_time_ms": 9,
+            "error": None,
+        },
+    }
+    top10_with_names = {
+        "run_id": "rev-2",
+        "status": "succeeded",
+        "result": {
+            "status": "success",
+            "columns": ["product_id", "name", "revenue"],
+            "rows": [
+                [340, "Product 340", 11442.93],
+                [252, "Product 252", 7499.58],
+                [296, "Product 296", 7102.40],
+            ],
+            "row_count": 3,
+            "exec_time_ms": 10,
+            "error": None,
+        },
+    }
+    client, executor = await _make_client(
+        tmp_path,
+        fake_results_queue=[top10_by_revenue, top10_with_names],
+        mock_responses=[
+            _sql_tool_call_msg(
+                (
+                    "SELECT oi.product_id, "
+                    "SUM(oi.price * oi.quantity * (1 - oi.discount / 100.0)) AS revenue "
+                    "FROM order_items oi "
+                    "GROUP BY oi.product_id "
+                    "ORDER BY revenue DESC "
+                    "LIMIT 10"
+                ),
+                dataset_id="ecommerce",
+                tc_id="tc-rev-1",
+            ),
+            AIMessage(content="Here are the top 10 products by revenue."),
+            _sql_tool_call_msg(
+                (
+                    "SELECT i.product_id, i.name, "
+                    "SUM(oi.price * oi.quantity * (1 - oi.discount / 100.0)) AS revenue "
+                    "FROM order_items oi "
+                    "JOIN inventory i ON i.product_id = oi.product_id "
+                    "GROUP BY i.product_id, i.name "
+                    "ORDER BY revenue DESC "
+                    "LIMIT 10"
+                ),
+                dataset_id="ecommerce",
+                tc_id="tc-rev-2",
+            ),
+            AIMessage(content="Here they are again with product names included."),
+        ],
+    )
+    try:
+        thread_id = "thread-ecommerce-followup"
+
+        first = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "ecommerce",
+                "thread_id": thread_id,
+                "message": "What are the top 10 products by revenue?",
+            },
+        )
+        assert first.status_code == 200
+        first_payload = first.json()
+        assert first_payload["status"] == "succeeded"
+        assert first_payload["result"]["columns"] == ["product_id", "revenue"]
+
+        second = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "ecommerce",
+                "thread_id": thread_id,
+                "message": "give me those again but with the product name included",
+            },
+        )
+        assert second.status_code == 200
+        second_payload = second.json()
+        assert second_payload["status"] == "succeeded"
+        assert "name" in second_payload["result"]["columns"]
+        assert "product names" in second_payload["assistant_message"].lower()
+
+        assert len(executor.calls) == 2
+        second_sql = executor.calls[1]["payload"]["sql"].lower()
+        assert "join inventory" in second_sql
+        assert "i.name" in second_sql
+    finally:
+        await client.aclose()
+
+
 # ── Streaming ─────────────────────────────────────────────────────────────
 
 

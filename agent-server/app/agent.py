@@ -17,11 +17,18 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
 from .storage import MessageStore
-from .storage.capsules import insert_capsule
+from .storage.capsules import get_capsule, insert_capsule
 from .tools import EXECUTION_TOOL_NAMES
 
 LOGGER = logging.getLogger("csv-analyst-agent-server")
@@ -36,6 +43,8 @@ SYSTEM_PROMPT_TEMPLATE = (
     "- If a user asks for any value derived from the dataset (count, top, max/min, trend, date, aggregate), "
     "you MUST execute an execution tool before answering.\n"
     "- Never describe a query you would run without actually running it.\n"
+    "- After you receive a successful execution result that answers the user, STOP calling tools and provide the final answer.\n"
+    "- For follow-up requests that refine prior results (e.g., 'those again but with name'), reuse prior run context and execute one focused query.\n"
     "- For greetings, capability questions, or schema questions you can answer "
     "from tool output — reply in text without executing a query.\n"
     "- Always keep result sets to <= {max_rows} rows.\n"
@@ -169,6 +178,51 @@ def _extract_capsule_data(
     }
 
 
+def _last_successful_run_context(
+    history: List[Dict[str, Any]],
+    dataset_id: str,
+    capsule_db_path: str,
+) -> Optional[str]:
+    """Build compact follow-up context from the latest successful run in-thread."""
+    seen_run_ids: set[str] = set()
+    for msg in reversed(history):
+        run_id = msg.get("run_id")
+        if not run_id or run_id in seen_run_ids:
+            continue
+        seen_run_ids.add(run_id)
+        capsule = get_capsule(capsule_db_path, run_id)
+        if not capsule:
+            continue
+        if capsule.get("dataset_id") != dataset_id:
+            continue
+        if capsule.get("status") != "succeeded":
+            continue
+
+        query_mode = capsule.get("query_mode")
+        if query_mode not in {"sql", "plan", "python"}:
+            continue
+
+        result_json = capsule.get("result_json") or {}
+        columns = result_json.get("columns") or []
+        row_count = result_json.get("row_count", 0)
+        compiled_sql = (capsule.get("compiled_sql") or "").strip()
+        python_code = (capsule.get("python_code") or "").strip()
+
+        sql_snippet = compiled_sql[:500] + ("..." if len(compiled_sql) > 500 else "")
+        py_snippet = python_code[:500] + ("..." if len(python_code) > 500 else "")
+        cols_preview = columns[:15]
+        return (
+            "Previous successful run context:\n"
+            f"- query_mode: {query_mode}\n"
+            f"- row_count: {row_count}\n"
+            f"- columns: {json.dumps(cols_preview)}\n"
+            f"- compiled_sql: {sql_snippet or 'N/A'}\n"
+            f"- python_code: {py_snippet or 'N/A'}\n"
+            "Use this only when the current user request is a follow-up that refers to prior results."
+        )
+    return None
+
+
 class AgentSession:
     """Stateful session that wires history, invocation, persistence."""
 
@@ -208,10 +262,79 @@ class AgentSession:
 
         # Build input messages: history + new user message
         input_messages = _history_to_messages(history)
+        prior_context = _last_successful_run_context(
+            history,
+            dataset_id,
+            self.capsule_db_path,
+        )
+        if prior_context:
+            input_messages.append(SystemMessage(content=prior_context))
         input_messages.append(HumanMessage(content=message))
 
         # Invoke agent
-        result = self.agent_graph.invoke({"messages": input_messages})
+        try:
+            result = self.agent_graph.invoke({"messages": input_messages})
+        except GraphRecursionError as exc:
+            LOGGER.warning(
+                "Agent recursion limit hit (thread=%s, dataset=%s): %s",
+                thread_id,
+                dataset_id,
+                exc,
+            )
+            assistant_message = (
+                "I hit an internal reasoning limit while refining that request. "
+                "Please rephrase it with explicit fields/tables (for example: "
+                "'top 10 products by revenue including inventory.name')."
+            )
+            result_payload = {
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "exec_time_ms": 0,
+                "error": {
+                    "type": "AGENT_RECURSION_LIMIT",
+                    "message": "Agent reached recursion limit before completion.",
+                },
+            }
+            self.message_store.append_message(
+                thread_id=thread_id,
+                role="assistant",
+                content=assistant_message,
+                dataset_id=dataset_id,
+                run_id=run_id,
+            )
+            insert_capsule(
+                self.capsule_db_path,
+                {
+                    "run_id": run_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "dataset_id": dataset_id,
+                    "dataset_version_hash": None,
+                    "question": message,
+                    "query_mode": "chat",
+                    "plan_json": None,
+                    "compiled_sql": None,
+                    "python_code": None,
+                    "status": "failed",
+                    "result_json": result_payload,
+                    "error_json": result_payload.get("error"),
+                    "exec_time_ms": 0,
+                },
+            )
+            return {
+                "assistant_message": assistant_message,
+                "run_id": run_id,
+                "thread_id": thread_id,
+                "status": "failed",
+                "result": result_payload,
+                "details": {
+                    "dataset_id": dataset_id,
+                    "query_mode": "chat",
+                    "plan_json": None,
+                    "compiled_sql": None,
+                    "python_code": None,
+                },
+            }
         output_messages: List[BaseMessage] = result.get("messages", [])
 
         # Extract capsule data
