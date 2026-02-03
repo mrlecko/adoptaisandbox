@@ -141,6 +141,39 @@ async def test_chat_sql_policy_violation_rejected(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_chat_non_sql_accepts_dict_draft_from_llm(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate(*_, **__):
+        return {
+            "query_mode": "sql",
+            "assistant_message": "LLM generated SQL.",
+            "sql": "SELECT COUNT(*) AS n FROM tickets",
+        }
+
+    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+
+    client = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "How many tickets are there?",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "sql"
+        assert payload["assistant_message"] == "LLM generated SQL."
+        assert payload["result"]["rows"] == [[42]]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
 async def test_chat_stream_emits_status_and_result_events(tmp_path):
     client = await _make_client(tmp_path)
     try:

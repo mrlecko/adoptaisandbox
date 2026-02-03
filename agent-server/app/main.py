@@ -334,7 +334,7 @@ def _generate_with_langchain(
     dataset: Dict[str, Any],
     message: str,
     max_rows: int,
-) -> Optional[AgentDraft]:
+) -> Optional[Any]:
     try:
         from langchain_core.prompts import ChatPromptTemplate
     except Exception:
@@ -408,6 +408,38 @@ def _generate_with_langchain(
     )
 
 
+def _coerce_agent_draft(raw: Any) -> Optional[AgentDraft]:
+    """Normalize provider output into AgentDraft across LangChain version differences."""
+    if raw is None:
+        return None
+
+    if isinstance(raw, AgentDraft):
+        return raw
+
+    candidate: Any = raw
+    if isinstance(raw, dict):
+        if isinstance(raw.get("parsed"), AgentDraft):
+            return raw["parsed"]
+        if isinstance(raw.get("parsed"), dict):
+            candidate = raw["parsed"]
+        elif isinstance(raw.get("output"), dict):
+            candidate = raw["output"]
+
+    if isinstance(candidate, dict):
+        try:
+            return AgentDraft.model_validate(candidate)
+        except ValidationError:
+            return None
+
+    if hasattr(candidate, "model_dump"):
+        try:
+            return AgentDraft.model_validate(candidate.model_dump())
+        except ValidationError:
+            return None
+
+    return None
+
+
 @dataclass
 class AppServices:
     settings: Settings
@@ -473,12 +505,13 @@ def create_app(
         if explicit_sql:
             sql = request.message.split(":", 1)[1].strip()
         else:
-            draft = _generate_with_langchain(
+            raw_draft = _generate_with_langchain(
                 settings=services.settings,
                 dataset=dataset,
                 message=request.message,
                 max_rows=services.settings.max_rows,
             )
+            draft = _coerce_agent_draft(raw_draft)
             if draft:
                 query_mode = draft.query_mode
                 assistant_message = draft.assistant_message
@@ -493,11 +526,13 @@ def create_app(
                     compiled_sql = services.compiler.compile(plan)
                     sql = compiled_sql
             else:
+                if raw_draft is not None:
+                    LOGGER.warning("LLM output could not be parsed as AgentDraft; using safe fallback.")
                 plan = _fallback_plan(request.dataset_id, dataset, services.settings.max_rows)
                 plan_json = plan.model_dump()
                 compiled_sql = services.compiler.compile(plan)
                 sql = compiled_sql
-                assistant_message = "No LLM configured; executed a safe fallback query."
+                assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
 
         status_cb("validating")
         sql_policy_error = _validate_sql_policy(sql)

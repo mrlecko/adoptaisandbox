@@ -200,8 +200,9 @@
   },
   "active": "7734673c9f1904ae",
   "lastOpenFiles": [
-    "tests/integration/__pycache__/test_agent_server_singlefile.cpython-310-pytest-8.4.2.pyc.80026",
     "agent-server/capsules.db-journal",
+    "tests/integration/__pycache__/test_agent_server_singlefile.cpython-311-pytest-7.4.4.pyc",
+    "tests/integration/__pycache__/test_agent_server_singlefile.cpython-310-pytest-8.4.2.pyc.80026",
     "agent-server/capsules.db",
     "tests/unit/__pycache__/test_compiler.cpython-310-pytest-8.4.2.pyc",
     "tests/unit/__pycache__/test_compiler.cpython-310-pytest-8.4.2.pyc.74166",
@@ -210,7 +211,6 @@
     "agent-server/app/validators/__pycache__/compiler.cpython-310.pyc",
     "agent-server/app/validators/__pycache__/__init__.cpython-310.pyc",
     "agent-server/app/models/__pycache__/query_plan.cpython-310.pyc",
-    "agent-server/app/models/__pycache__/__init__.cpython-310.pyc",
     "AGENT_SERVER_SPECIFICATION.md",
     "docs/PROJECT_STATUS.md",
     "docs/FUTURE_ENHANCEMENTS.md",

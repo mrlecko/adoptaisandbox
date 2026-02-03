@@ -100,9 +100,9 @@ make test-runner
 
 Current validated counts:
 - `66` unit tests (QueryPlan/compiler)
-- `6` single-file server integration tests
+- `7` single-file server integration tests
 - `7` runner integration tests
-- `79` total in this validated suite
+- `80` total in this validated suite
 
 ## Make Targets You’ll Use Most
 

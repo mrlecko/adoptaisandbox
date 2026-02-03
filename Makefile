@@ -1,10 +1,17 @@
 # CSV Analyst Chat - Makefile
 # Common development tasks
 
-.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev
+.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev agent-venv
 
 # Default target
 .DEFAULT_GOAL := help
+
+AGENT_VENV := agent-server/.venv
+AGENT_PYTHON := $(AGENT_VENV)/bin/python
+AGENT_PIP := $(AGENT_VENV)/bin/pip
+AGENT_PYTEST := $(AGENT_VENV)/bin/pytest
+AGENT_UVICORN := $(AGENT_VENV)/bin/uvicorn
+AGENT_VENV_STAMP := $(AGENT_VENV)/.deps.stamp
 
 ##@ General
 
@@ -15,10 +22,21 @@ help: ## Display this help message
 
 install: ## Install dependencies (agent-server and UI)
 	@echo "Installing agent-server dependencies..."
-	cd agent-server && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+	$(MAKE) agent-venv
 	@echo "Installing UI dependencies..."
 	cd ui && npm install
 	@echo "✓ Dependencies installed"
+
+$(AGENT_VENV_STAMP): agent-server/requirements.txt
+	@if [ ! -x "$(AGENT_PYTHON)" ]; then \
+		echo "Creating agent-server virtualenv..."; \
+		python3 -m venv $(AGENT_VENV); \
+	fi
+	@$(AGENT_PIP) install -r agent-server/requirements.txt
+	@touch $(AGENT_VENV_STAMP)
+
+agent-venv: $(AGENT_VENV_STAMP) ## Ensure agent-server virtualenv exists and deps are installed
+	@echo "✓ Agent virtualenv ready at $(AGENT_VENV)"
 
 dev: ## Start local development environment (docker-compose)
 	@echo "Starting local development environment..."
@@ -31,41 +49,41 @@ dev-down: ## Stop local development environment
 dev-logs: ## View logs from development environment
 	docker compose logs -f
 
-run-agent: ## Run single-file FastAPI agent server
-	uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000
+run-agent: agent-venv ## Run single-file FastAPI agent server
+	$(AGENT_UVICORN) app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000
 
-run-agent-dev: ## Run single-file FastAPI agent server with auto-reload
-	uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
+run-agent-dev: agent-venv ## Run single-file FastAPI agent server with auto-reload
+	$(AGENT_UVICORN) app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
 
 ##@ Testing
 
-test: ## Run all tests
+test: agent-venv ## Run all tests
 	@echo "Running all tests..."
-	pytest tests/ -v
+	$(AGENT_PYTEST) tests/ -v
 	@echo "✓ All tests passed"
 
 test-runner: build-runner-test ## Run runner integration tests (requires Docker)
 	@echo "Running runner integration tests..."
 	RUNNER_TEST_IMAGE=csv-analyst-runner:test pytest tests/integration/test_runner_container.py -v
 
-test-agent-server: ## Run single-file agent server integration tests
+test-agent-server: agent-venv ## Run single-file agent server integration tests
 	@echo "Running agent server integration tests..."
-	pytest tests/integration/test_agent_server_singlefile.py -v
+	$(AGENT_PYTEST) tests/integration/test_agent_server_singlefile.py -v
 
-test-unit: ## Run unit tests only
+test-unit: agent-venv ## Run unit tests only
 	@echo "Running unit tests..."
-	pytest tests/unit/ -v
+	$(AGENT_PYTEST) tests/unit/ -v
 
-test-integration: ## Run integration tests only
+test-integration: agent-venv ## Run integration tests only
 	@echo "Running integration tests..."
-	pytest tests/integration/ -v
+	$(AGENT_PYTEST) tests/integration/ -v
 
-test-security: ## Run security tests (red team)
+test-security: agent-venv ## Run security tests (red team)
 	@echo "Running security tests..."
-	pytest tests/security/ -v
+	$(AGENT_PYTEST) tests/security/ -v
 
-coverage: ## Generate test coverage report
-	pytest tests/ --cov=agent-server --cov-report=html --cov-report=term
+coverage: agent-venv ## Generate test coverage report
+	$(AGENT_PYTEST) tests/ --cov=agent-server --cov-report=html --cov-report=term
 	@echo "✓ Coverage report generated in htmlcov/index.html"
 
 ##@ Code Quality
