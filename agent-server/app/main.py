@@ -111,6 +111,19 @@ class SqlRescueDraft(BaseModel):
         return self
 
 
+class PythonDraft(BaseModel):
+    """Structured python execution payload."""
+
+    python_code: str
+    assistant_message: str = "Executed Python analysis."
+
+    @model_validator(mode="after")
+    def _validate_python(self) -> "PythonDraft":
+        if not self.python_code.strip():
+            raise ValueError("python_code is required")
+        return self
+
+
 SQL_BLOCKLIST = [
     "drop",
     "delete",
@@ -146,6 +159,19 @@ def _normalize_sql_for_dataset(sql: str, dataset_id: str) -> str:
         normalized,
     )
     return normalized
+
+
+def _is_python_intent(message: str) -> bool:
+    lowered = message.lower()
+    python_markers = [
+        "use pandas",
+        "using pandas",
+        "python dataframe",
+        "in python",
+        "with pandas",
+        "python code",
+    ]
+    return any(marker in lowered for marker in python_markers)
 
 
 def _utc_now_iso() -> str:
@@ -545,6 +571,153 @@ def _coerce_sql_rescue_draft(raw: Any) -> Optional[SqlRescueDraft]:
     return None
 
 
+def _coerce_python_draft(raw: Any) -> Optional[PythonDraft]:
+    if raw is None:
+        return None
+    if isinstance(raw, PythonDraft):
+        return raw
+
+    candidate: Any = raw
+    if isinstance(raw, dict):
+        if isinstance(raw.get("parsed"), PythonDraft):
+            return raw["parsed"]
+        if isinstance(raw.get("parsed"), dict):
+            candidate = raw["parsed"]
+        elif isinstance(raw.get("output"), dict):
+            candidate = raw["output"]
+
+    if isinstance(candidate, dict):
+        try:
+            return PythonDraft.model_validate(candidate)
+        except ValidationError:
+            return None
+
+    if hasattr(candidate, "content") and isinstance(candidate.content, str):
+        text = candidate.content.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        try:
+            data = json.loads(text)
+            return PythonDraft.model_validate(data)
+        except (json.JSONDecodeError, ValidationError):
+            return None
+
+    if hasattr(candidate, "model_dump"):
+        try:
+            return PythonDraft.model_validate(candidate.model_dump())
+        except ValidationError:
+            return None
+
+    return None
+
+
+def _generate_python_with_langchain(
+    settings: Settings,
+    dataset: Dict[str, Any],
+    message: str,
+    max_rows: int,
+) -> Optional[PythonDraft]:
+    try:
+        from langchain_core.prompts import ChatPromptTemplate
+    except Exception:
+        return None
+
+    schema_summary = {
+        "dataset_id": dataset["id"],
+        "description": dataset.get("description"),
+        "files": [
+            {
+                "name": f["name"],
+                "schema": list(f.get("schema", {}).keys()),
+            }
+            for f in dataset.get("files", [])
+        ],
+    }
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "Produce executable pandas code only in structured output. "
+                    "Use provided table DataFrames by name (e.g. tickets, orders). "
+                    "Set result_df or result. Keep output to <= {max_rows} rows."
+                ),
+            ),
+            ("human", "Dataset schema: {schema}\n\nUser message: {message}"),
+        ]
+    )
+
+    model = None
+    provider = settings.llm_provider
+
+    if provider in ("auto", "openai") and settings.openai_api_key:
+        try:
+            from langchain_openai import ChatOpenAI
+        except Exception:
+            if provider == "openai":
+                return None
+        else:
+            model = ChatOpenAI(
+                model=settings.openai_model,
+                temperature=0,
+                api_key=settings.openai_api_key,
+            ).with_structured_output(PythonDraft)
+
+    if model is None and provider in ("auto", "anthropic") and settings.anthropic_api_key:
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except Exception:
+            if provider == "anthropic":
+                return None
+        else:
+            model = ChatAnthropic(
+                model=settings.anthropic_model,
+                temperature=0,
+                api_key=settings.anthropic_api_key,
+            ).with_structured_output(PythonDraft)
+
+    if model is None:
+        return None
+
+    chain = prompt | model
+    raw = chain.invoke(
+        {
+            "schema": json.dumps(schema_summary),
+            "message": message,
+            "max_rows": max_rows,
+        }
+    )
+    return _coerce_python_draft(raw)
+
+
+def _heuristic_python_from_message(
+    message: str,
+    dataset: Dict[str, Any],
+    max_rows: int,
+) -> Optional[str]:
+    """Fallback python generator for simple 'group by X' requests."""
+    lowered = message.lower()
+    match = re.search(r"group(?:\s+\w+)*\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)", lowered)
+    if not match:
+        return None
+    target_col = match.group(1).strip().rstrip("?.!,")
+
+    for file in dataset.get("files", []):
+        table = Path(file["name"]).stem
+        schema_cols = {c.lower(): c for c in file.get("schema", {}).keys()}
+        if target_col in schema_cols:
+            col = schema_cols[target_col]
+            return (
+                f'result_df = {table}.groupby("{col}").size().reset_index(name="count")'
+                '.sort_values("count", ascending=False).head('
+                f"{max_rows})"
+            )
+    return None
+
+
 def _generate_sql_rescue_with_langchain(
     settings: Settings,
     dataset: Dict[str, Any],
@@ -685,6 +858,7 @@ def create_app(
         status_cb("planning")
         explicit_sql = request.message.strip().lower().startswith("sql:")
         explicit_python = request.message.strip().lower().startswith("python:")
+        implicit_python = _is_python_intent(request.message) and not explicit_sql
 
         query_mode: Literal["sql", "plan", "python"] = "sql" if explicit_sql else "plan"
         assistant_message = "Executed query."
@@ -692,7 +866,7 @@ def create_app(
         compiled_sql = None
         python_code = None
 
-        if explicit_python:
+        if explicit_python or implicit_python:
             if not services.settings.enable_python_execution:
                 result = {
                     "columns": [],
@@ -737,9 +911,77 @@ def create_app(
                 )
                 return response
             query_mode = "python"
-            python_code = request.message.split(":", 1)[1].strip()
+            if explicit_python:
+                python_code = request.message.split(":", 1)[1].strip()
+                assistant_message = "Executed Python analysis."
+            else:
+                generated = _generate_python_with_langchain(
+                    settings=services.settings,
+                    dataset=dataset,
+                    message=request.message,
+                    max_rows=services.settings.max_rows,
+                )
+                if generated:
+                    python_code = generated.python_code
+                    assistant_message = generated.assistant_message
+                else:
+                    python_code = _heuristic_python_from_message(
+                        message=request.message,
+                        dataset=dataset,
+                        max_rows=services.settings.max_rows,
+                    )
+                    if python_code:
+                        assistant_message = "Generated pandas code from request and executed it."
+                    else:
+                        result = {
+                            "columns": [],
+                            "rows": [],
+                            "row_count": 0,
+                            "exec_time_ms": 0,
+                            "error": {
+                                "type": "VALIDATION_ERROR",
+                                "message": (
+                                    "Could not generate executable Python code. "
+                                    "Use explicit 'PYTHON: ...' format."
+                                ),
+                            },
+                        }
+                        response = ChatResponse(
+                            assistant_message=(
+                                "I couldn't generate safe Python for that request. "
+                                "Please provide explicit code with 'PYTHON: ...'."
+                            ),
+                            run_id=run_id,
+                            status="rejected",
+                            result=result,
+                            details={
+                                "dataset_id": request.dataset_id,
+                                "query_mode": "python",
+                                "plan_json": None,
+                                "compiled_sql": None,
+                                "python_code": None,
+                            },
+                        )
+                        _insert_capsule(
+                            services.settings.capsule_db_path,
+                            {
+                                "run_id": run_id,
+                                "created_at": _utc_now_iso(),
+                                "dataset_id": request.dataset_id,
+                                "dataset_version_hash": dataset.get("version_hash"),
+                                "question": request.message,
+                                "query_mode": "python",
+                                "plan_json": None,
+                                "compiled_sql": None,
+                                "python_code": None,
+                                "status": response.status,
+                                "result_json": response.result,
+                                "error_json": response.result.get("error"),
+                                "exec_time_ms": 0,
+                            },
+                        )
+                        return response
             sql = ""
-            assistant_message = "Executed Python analysis."
         elif explicit_sql:
             sql = request.message.split(":", 1)[1].strip()
         else:

@@ -378,3 +378,90 @@ async def test_chat_python_rejected_when_feature_disabled(tmp_path):
         assert payload["result"]["error"]["type"] == "FEATURE_DISABLED"
     finally:
         await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_implicit_python_intent_uses_generated_python(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    def fake_generate_python(*_, **__):
+        return app_main.PythonDraft(
+            python_code='result_df = tickets.groupby("priority").size().reset_index(name="n")',
+            assistant_message="Generated pandas analysis.",
+        )
+
+    monkeypatch.setattr(app_main, "_generate_python_with_langchain", fake_generate_python)
+
+    captured = {}
+
+    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
+        captured["query_type"] = kwargs.get("query_type")
+        captured["python_code"] = kwargs.get("python_code")
+        return {
+            "status": "success",
+            "columns": ["priority", "n"],
+            "rows": [["High", 1]],
+            "row_count": 1,
+            "exec_time_ms": 10,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "use pandas to group the tickets by priority",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert payload["assistant_message"] == "Generated pandas analysis."
+        assert captured["query_type"] == "python"
+        assert "groupby" in captured["python_code"]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_implicit_python_intent_uses_heuristic_when_llm_unavailable(tmp_path, monkeypatch):
+    from app import main as app_main
+
+    monkeypatch.setattr(app_main, "_generate_python_with_langchain", lambda *_, **__: None)
+
+    captured = {}
+
+    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
+        captured["python_code"] = kwargs.get("python_code")
+        return {
+            "status": "success",
+            "columns": ["priority", "count"],
+            "rows": [["High", 1]],
+            "row_count": 1,
+            "exec_time_ms": 10,
+            "stdout_trunc": "",
+            "stderr_trunc": "",
+            "error": None,
+        }
+
+    client = await _make_client(tmp_path, runner_executor=fake_runner)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "use pandas to group the tickets by priority",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert "groupby(\"priority\")" in captured["python_code"]
+    finally:
+        await client.aclose()

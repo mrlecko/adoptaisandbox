@@ -62,10 +62,10 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 ```text
 tests/unit/test_query_plan.py               36 tests ✅
 tests/unit/test_compiler.py                 30 tests ✅
-tests/integration/test_agent_server_singlefile.py 13 tests ✅
+tests/integration/test_agent_server_singlefile.py 15 tests ✅
 tests/integration/test_runner_container.py   9 tests ✅
 -----------------------------------------------------
-TOTAL                                       88 tests ✅
+TOTAL                                       90 tests ✅
 ```
 
 ### Datasets

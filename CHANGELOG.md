@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server specification doc: `AGENT_SERVER_SPECIFICATION.md`
 - Python execution design spec: `PYTHON_EXECUTION_SPEC.md` (same runner image, separate entrypoint plan)
 - Explicit python chat mode (`PYTHON: ...`) wired to runner python entrypoint
+- Implicit python-intent routing for prompts like "use pandas ..." with LLM generation + heuristic fallback
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
