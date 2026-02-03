@@ -1,5 +1,7 @@
 # CSV Analyst Chat - Master TODO List
 
+**Last Updated:** 2026-02-03
+
 **Status Legend:**
 - `[ ]` Not started
 - `[~]` In progress
@@ -25,16 +27,16 @@
 ### P0.2 Tech Stack Validation
 - [ ] Verify LangChain Agent UI starter compatibility
 - [ ] Test LangChain agent graph basics locally
-- [ ] Validate DuckDB for CSV querying
+- [x] Validate DuckDB for CSV querying
 - [ ] Confirm Docker SDK for Python (local runner)
 - [ ] Confirm Kubernetes Python client (K8s runner)
 
 ### P0.3 Environment Setup
-- [ ] Define directory structure (/datasets, /agent-server, /runner, /ui, /helm, /tests)
-- [ ] Create pyproject.toml / requirements.txt for agent server
-- [ ] Create Dockerfile stubs (UI, agent-server, runner)
-- [ ] Create docker-compose.yml stub
-- [ ] Create Makefile with targets (dev, smoke, clean, k8s-up, helm-install)
+- [x] Define directory structure (/datasets, /agent-server, /runner, /ui, /helm, /tests)
+- [x] Create pyproject.toml / requirements.txt for agent server
+- [~] Create Dockerfile stubs (UI, agent-server, runner)
+- [x] Create docker-compose.yml stub
+- [x] Create Makefile with targets (dev, smoke, clean, k8s-up, helm-install)
 
 **PRD Mapping:** Sections 0, 17, Deployment-B, Deployment-F
 
@@ -58,7 +60,7 @@
   - [x] sensors.csv (sensor_id, timestamp, location, temp, humidity, anomaly_flag)
   - [x] 6 demo prompts
 - [x] Implement dataset version hashing (SHA256 of CSVs)
-- [ ] Create dataset loader utility
+- [~] Create dataset loader utility
 - [ ] Write unit tests for dataset registry loader
 
 **PRD Mapping:** Section 12, FR-D1-D3
@@ -97,22 +99,22 @@
 **PRD Mapping:** FR-SQL1-SQL3, Section 15.3
 
 ### P1.4 Runner (SQL Mode) (FR-X1-X4, Section 10)
-- [ ] Create `/runner` directory
-- [ ] Create runner Dockerfile
-  - [ ] Base image: Python 3.11-slim
-  - [ ] Install DuckDB
-  - [ ] Copy runner script
-  - [ ] Non-root user (UID 1000)
-  - [ ] Read-only root filesystem (use /tmp for DuckDB working dir)
-- [ ] Implement runner.py
-  - [ ] Read RunnerRequest JSON from stdin
-  - [ ] Load CSVs into DuckDB tables
-  - [ ] Execute SQL with timeout
-  - [ ] Return RunnerResponse JSON to stdout
+- [x] Create `/runner` directory
+- [x] Create runner Dockerfile
+  - [x] Base image: Python 3.11-slim
+  - [x] Install DuckDB
+  - [x] Copy runner script
+  - [x] Non-root user (UID 1000)
+  - [x] Read-only root filesystem (use /tmp for DuckDB working dir)
+- [x] Implement runner.py
+  - [x] Read RunnerRequest JSON from stdin
+  - [x] Load CSVs into DuckDB tables
+  - [x] Execute SQL with timeout
+  - [x] Return RunnerResponse JSON to stdout
     - Fields: status, columns, rows, row_count, exec_time_ms, stdout_trunc, stderr_trunc, error
-  - [ ] Handle errors gracefully
-  - [ ] Respect max_rows limit
-- [ ] Test runner locally (docker run with test inputs)
+  - [x] Handle errors gracefully
+  - [x] Respect max_rows limit
+- [x] Test runner locally (docker run with test inputs)
 - [ ] Write unit tests for runner (mocked DuckDB)
 
 **PRD Mapping:** Section 10, FR-X1-X4
@@ -139,63 +141,65 @@
 **PRD Mapping:** Deployment-B, FR-X2-X4
 
 ### P1.6 Agent Server Core (FR-A1-A3, Section 7, 13)
-- [ ] Create `/agent-server` directory
-- [ ] Set up FastAPI application
-- [ ] Implement dataset endpoints
-  - [ ] GET /datasets (FR metadata)
-  - [ ] GET /datasets/{id}/schema
-- [ ] Implement LangChain agent graph
+- [x] Create `/agent-server` directory
+- [x] Set up FastAPI application
+- [x] Implement dataset endpoints
+  - [x] GET /datasets (FR metadata)
+  - [x] GET /datasets/{id}/schema
+- [~] Implement LangChain agent graph
   - [ ] Define agent tools:
     - list_datasets()
     - get_dataset_schema(dataset_id)
     - execute_query_plan(dataset_id, plan_json)
     - execute_sql(dataset_id, sql)
     - get_run_status(run_id)
-  - [ ] System prompt enforcing JSON plan default, SQL optional
-  - [ ] Structured output for QueryPlan
-- [ ] Implement /chat endpoint
-  - [ ] Accept: dataset_id, thread_id (optional), message
-  - [ ] Call agent graph
-  - [ ] Validate plan/SQL
-  - [ ] Submit to executor
-  - [ ] Return assistant message + run status + result
-- [ ] Implement /runs endpoints
+  - [x] System prompt enforcing JSON plan default, SQL optional
+  - [x] Structured output for QueryPlan
+- [x] Implement /chat endpoint
+  - [x] Accept: dataset_id, thread_id (optional), message
+  - [x] Call agent graph
+  - [x] Validate plan/SQL
+  - [x] Submit to executor
+  - [x] Return assistant message + run status + result
+- [~] Implement /runs endpoints
   - [ ] POST /runs (submit plan/SQL)
-  - [ ] GET /runs/{run_id} (fetch capsule)
-- [ ] Add health endpoint (/healthz)
-- [ ] Add structured logging (JSON logs)
+  - [x] GET /runs/{run_id} (fetch capsule)
+- [x] Add health endpoint (/healthz)
+- [~] Add structured logging (JSON logs)
 
 **PRD Mapping:** Section 7, 13, FR-A1-A3
 
 ### P1.7 Run Capsule Storage (FR-R1-R3)
-- [ ] Design run_capsules table schema (SQLite)
+- [~] Design run_capsules table schema (SQLite)
   - Fields: run_id, timestamp, dataset_id, dataset_version_hash, question, plan_json, compiled_sql, runner_mode, resource_limits, result_preview, stats, stdout, stderr, status, error
-- [ ] Implement capsule persistence layer
-- [ ] Implement capsule retrieval by run_id
+- [x] Implement capsule persistence layer
+- [x] Implement capsule retrieval by run_id
 - [ ] Add indexing for efficient lookups
-- [ ] Write unit tests for capsule CRUD
+- [~] Write unit tests for capsule CRUD
 
 **PRD Mapping:** FR-R1-R3, Section 14.2
 
 ### P1.8 UI Integration (FR-UI1-UI3)
+_Note: MVP currently uses static UI served by FastAPI (`GET /`) instead of LangChain Agent UI starter._
+
 - [ ] Clone/set up LangChain Agent UI starter
-- [ ] Configure UI to talk to agent server
+- [x] Configure UI to talk to agent server
 - [ ] Add dataset selection dropdown
-  - Fetch datasets from GET /datasets
-  - Display suggested prompts per dataset
-- [ ] Add chat message input
-- [ ] Display assistant responses (streaming if supported)
-- [ ] Add "Show details" panel
+  - [x] Fetch datasets from GET /datasets
+  - [ ] Display suggested prompts per dataset
+- [x] Add chat message input
+- [x] Display assistant responses (streaming if supported)
+- [~] Add "Show details" panel
   - Query plan JSON (formatted)
   - Compiled SQL (formatted)
   - Execution stats/logs
   - Result table preview
-- [ ] Add run status indicators (Pending, Running, Succeeded, Failed, Rejected)
-- [ ] Test end-to-end flow locally
+- [x] Add run status indicators (Pending, Running, Succeeded, Failed, Rejected)
+- [x] Test end-to-end flow locally
 
 **PRD Mapping:** FR-UI1-UI3
 
-**Deliverable:** Local dev environment works end-to-end via `docker compose up`
+**Deliverable:** Local dev environment works end-to-end via `make run-agent-dev`
 
 ---
 
@@ -284,15 +288,15 @@
 - [ ] Implement structured JSON logging
   - Request ID, run ID, dataset ID, timing, validation outcomes
 - [ ] Log runner submission details (container ID / Job name)
-- [ ] Add /healthz endpoint (agent server)
+- [x] Add /healthz endpoint (agent server)
 - [ ] Add /readyz endpoint (optional, for K8s readiness probe)
 - [ ] Document log schema in README
-- [ ] Configure logging via environment variables
+- [x] Configure logging via environment variables
 
 **PRD Mapping:** NFR-OPS1-OPS3, Section 14
 
 ### P2.6 Test Suite (Section 15)
-- [ ] Organize tests/
+- [x] Organize tests/
   - tests/unit/ (validators, compilers, capsules)
   - tests/integration/ (executor, end-to-end)
   - tests/security/ (red team fixtures)
@@ -312,11 +316,11 @@
   - SQL escape attempts
   - Data exfil attempts
   - Infinite/expensive queries
-- [ ] Set up CI (GitHub Actions)
-  - Run tests on PR
-  - Lint code (ruff, black)
-  - Build Docker images
-  - Push images to GHCR on main branch
+- [~] Set up CI (GitHub Actions)
+  - [x] Run tests on PR
+  - [x] Lint code (ruff, black)
+  - [x] Build Docker images
+  - [x] Push images to GHCR on main branch
 
 **PRD Mapping:** Section 15, Deployment-E
 
@@ -327,13 +331,13 @@
 ## Phase 3: Polish & Deployment (Day 5)
 
 ### P3.1 Documentation (Deployment-F)
-- [ ] Write README.md
-  - [ ] Overview (what is this, why it exists)
-  - [ ] Architecture diagram
+- [~] Write README.md
+  - [x] Overview (what is this, why it exists)
+  - [x] Architecture diagram
   - [ ] Quickstart (Local)
     - Prerequisites (Docker, docker-compose)
-    - `make dev`
-    - Open UI (http://localhost:3000)
+    - `make run-agent-dev`
+    - Open UI (http://localhost:8000)
     - Run 3 canned prompts
   - [ ] Quickstart (Local Kubernetes)
     - Prerequisites (kind/k3d, kubectl, helm)
@@ -345,27 +349,27 @@
     - Default path: k3s on VM or managed K8s
     - Step-by-step runbook
     - TLS setup (Let's Encrypt or manual)
-  - [ ] Security Model
+  - [x] Security Model
     - Sandboxing approach
     - Validation gates
     - RBAC model
     - Network policies
-  - [ ] Development
+  - [x] Development
     - Project structure
     - How to add a dataset
     - How to extend the query DSL
-  - [ ] Troubleshooting
+  - [x] Troubleshooting
     - Docker daemon not running
     - Image pull errors
     - RBAC permission denied
     - Jobs stuck in Pending
     - Runner timeouts
-  - [ ] Testing
+  - [x] Testing
     - How to run tests
     - How to run smoke tests
-  - [ ] License (MIT or Apache 2.0)
-- [ ] Write CONTRIBUTING.md (optional, for polish)
-- [ ] Write CHANGELOG.md (track versions)
+  - [x] License (MIT or Apache 2.0)
+- [x] Write CONTRIBUTING.md (optional, for polish)
+- [x] Write CHANGELOG.md (track versions)
 
 **PRD Mapping:** Deployment-F
 
@@ -385,11 +389,11 @@
 **PRD Mapping:** FR-HOST-1, Deployment-D
 
 ### P3.3 CI/CD Pipeline (FR-CICD-1-3)
-- [ ] Set up GitHub Actions workflow
-  - [ ] Build UI image
-  - [ ] Build agent-server image
-  - [ ] Build runner image
-  - [ ] Push images to GHCR (on main, tagged with commit SHA + 'latest')
+- [~] Set up GitHub Actions workflow
+  - [x] Build UI image
+  - [x] Build agent-server image
+  - [x] Build runner image
+  - [x] Push images to GHCR (on main, tagged with commit SHA + 'latest')
 - [ ] Add Makefile target: `make release TAG=v1.0`
   - Builds images with tag
   - Pushes to registry

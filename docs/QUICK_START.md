@@ -1,202 +1,85 @@
 # Quick Start Guide
 
-Get the CSV Analyst Chat project up and running quickly.
+Get the current PoC running locally (single-file FastAPI server + sandboxed runner).
 
 ## Prerequisites
 
-- Python 3.11+
-- Docker and Docker Compose
-- Git
+- Python 3.11+ preferred
+- Docker
+- Make
 
-## Setup (5 minutes)
-
-### 1. Clone and Install Dependencies
+## 1) Install agent-server dependencies
 
 ```bash
-# Install Python dependencies for agent server
 cd agent-server
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 cd ..
 ```
 
-### 2. Generate Datasets
+## 2) Configure environment
+
+Copy root env template and set your provider key:
 
 ```bash
-# Generate all datasets (deterministic)
-python3 scripts/generate_ecommerce_dataset.py
-python3 scripts/generate_support_dataset.py
-python3 scripts/generate_sensors_dataset.py
-
-# Create registry with metadata
-python3 scripts/generate_registry.py
-
-# Validate (optional)
-python3 scripts/validate_datasets.py
+cp .env.example .env
 ```
 
-This creates ~70K rows of sample data in `datasets/`.
+`.env` must live at:
+- `/home/juancho/projects/adoptaisandbox/.env`
 
-### 3. Verify Setup
+Set at least one key:
 
 ```bash
-# Run QueryPlan unit tests
-pytest tests/unit/ -v
+OPENAI_API_KEY=...
+# and/or
+ANTHROPIC_API_KEY=...
+```
 
-# Run sandboxed runner integration tests (builds runner image)
+Optional provider selection:
+
+```bash
+LLM_PROVIDER=auto  # auto|openai|anthropic
+```
+
+## 3) Build runner image used by tests/server
+
+```bash
+make build-runner-test
+```
+
+## 4) Run tests (sanity)
+
+```bash
+pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
+make test-agent-server
 make test-runner
-
-# Should see unit tests + 7 runner integration tests pass
 ```
 
-### 4. Try QueryPlan DSL
+## 5) Start server + UI
 
 ```bash
-cd agent-server
-python3 demo_query_plan.py
+make run-agent-dev
 ```
 
-Shows 7 demos of the QueryPlan DSL in action.
+Open:
+- `http://localhost:8000`
 
-## What You Can Do Now
+Use the UI to select dataset and send a question (or `SQL: ...`).
 
-### Create Query Plans
-
-```python
-from app.models.query_plan import QueryPlan, Filter, FilterOperator, SelectColumn
-from app.validators.compiler import QueryPlanCompiler
-
-# Create a query
-plan = QueryPlan(
-    dataset_id="ecommerce",
-    table="orders",
-    select=[SelectColumn(column="order_id"), SelectColumn(column="total")],
-    filters=[Filter(column="status", op=FilterOperator.EQ, value="completed")],
-    limit=10
-)
-
-# Compile to SQL
-compiler = QueryPlanCompiler()
-sql = compiler.compile(plan)
-print(sql)
-```
-
-### Explore Datasets
+## Useful Commands
 
 ```bash
-# View dataset metadata
-cat datasets/registry.json | jq '.datasets[] | {id, name, row_count}'
-
-# Peek at data
-head -n 20 datasets/ecommerce/orders.csv
-head -n 20 datasets/support/tickets.csv
-head -n 20 datasets/sensors/sensors.csv
-```
-
-### Run Tests
-
-```bash
-# All tests
-pytest tests/unit/ -v
-
-# Specific test file
-pytest tests/unit/test_query_plan.py -v
-
-# With coverage
-pytest tests/unit/ --cov=app.models --cov=app.validators
-```
-
-## Next Steps
-
-The project has completed QueryPlan DSL + runner implementation.
-
-**Next components to build**:
-1. **SQL Validator** - Validate raw SQL queries
-2. **Docker Executor** - Run queries in Docker containers
-3. **Agent Server APIs** - LangChain orchestration with FastAPI
-4. **UI** - Chat interface wiring
-5. **K8s Executor + Helm** - Prod-like runtime path
-
-See `TODO.md` for detailed task list.
-
-## Common Commands
-
-```bash
-# Generate datasets
-make validate-datasets
-
-# Run tests
+make run-agent
+make run-agent-dev
+make test-agent-server
+make test-runner
 make test-unit
-make test-runner
-
-# Run demo
-cd agent-server && python3 demo_query_plan.py
-
-# Check status
-pytest tests/unit/ -q  # Quick test run
 ```
 
-## Troubleshooting
+## Notes
 
-**Issue**: Tests not found
-```bash
-# Make sure you're in project root
-cd /path/to/adoptaisandbox
-pytest tests/unit/ -v
-```
-
-**Issue**: Import errors
-```bash
-# Ensure agent-server dependencies installed
-cd agent-server
-pip install -r requirements.txt
-```
-
-**Issue**: Dataset generation fails
-```bash
-# Check Python version (need 3.11+)
-python3 --version
-
-# Run individual generators
-python3 scripts/generate_ecommerce_dataset.py
-```
-
-## Project Structure
-
-```
-adoptaisandbox/
-├── agent-server/          # Backend scaffold (QueryPlan DSL + compiler)
-│   ├── app/
-│   │   ├── models/        # QueryPlan DSL ✅
-│   │   └── validators/    # SQL compiler ✅
-│   └── demo_query_plan.py # Demo script ✅
-├── datasets/              # CSV datasets ✅
-│   ├── ecommerce/
-│   ├── support/
-│   ├── sensors/
-│   └── registry.json
-├── runner/                # SQL executor ✅
-├── tests/                 # Test suite ✅
-│   └── unit/
-├── docs/                  # Documentation ✅
-└── scripts/               # Dataset generators ✅
-```
-
-## Resources
-
-- **README.md** - Main project documentation
-- **CLAUDE.md** - AI assistant context (development guide)
-- **TODO.md** - Task breakdown and progress
-- **docs/PROJECT_STATUS.md** - Current status report
-- **docs/use-cases/** - Dataset specifications
-- **agent-server/README.md** - QueryPlan DSL guide
-
-## Getting Help
-
-1. Check `CLAUDE.md` for development patterns
-2. Review `TODO.md` for task context
-3. Read component READMEs in each directory
-4. Run demo scripts to see examples
-
-Happy coding! 🚀
+- QueryPlan DSL is handled in agent-server (`demo_query_plan.py` + compiler).
+- Runner executes SQL only; it does not parse QueryPlan JSON.
+- Streaming endpoint is `POST /chat/stream` and the static UI consumes it.

@@ -23,3 +23,5 @@ dist/
 build/
 *.egg-info/
 
+# Local sqlite artifacts
+*.db

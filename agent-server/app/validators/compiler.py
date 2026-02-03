@@ -5,15 +5,12 @@ Compiles validated QueryPlan objects to deterministic DuckDB SQL.
 Enforces safety constraints and query limits.
 """
 
-from typing import List, Union
 from ..models.query_plan import (
     QueryPlan,
     Filter,
     FilterOperator,
     Aggregation,
     SelectColumn,
-    OrderBy,
-    SortDirection,
 )
 
 

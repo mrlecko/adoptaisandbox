@@ -47,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runner container integration tests (7 tests)
 - Make targets for runner validation: `build-runner-test`, `test-runner`
 
+**Single-File Agent Server (Phase 1.5, minimal first iteration)**:
+- Single-file FastAPI implementation (`agent-server/app/main.py`)
+- API endpoints: `/healthz`, `/datasets`, `/datasets/{id}/schema`, `/chat`, `/chat/stream`, `/runs/{run_id}`
+- Static UI served from same FastAPI app (`GET /`) with streaming chat consumption
+- SQLite run capsule persistence and retrieval
+- Optional `.env` loading support from repo root and cwd
+- OpenAI provider support (`OPENAI_API_KEY`, `OPENAI_MODEL`, `LLM_PROVIDER`)
+- Integration test suite for single-file server (`tests/integration/test_agent_server_singlefile.py`)
+- Agent server run targets in Makefile: `run-agent`, `run-agent-dev`, `test-agent-server`
+- Server specification doc: `AGENT_SERVER_SPECIFICATION.md`
+
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
 - Updated README.md with current project status
@@ -54,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated runner timeout classification to return `RUNNER_TIMEOUT` consistently
 - Updated support/sensors dataset generation for data validity edge cases
 - Updated implementation/status docs with runner usage and test workflow
+- Updated docs for single-file server usage, static UI, streaming endpoint, and env placement
+- Updated root `.env.example` to include provider/runtime configuration for the single-file server
 
 ### Deprecated
 - N/A
@@ -64,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Support tickets edge cases where `resolved_at < created_at`
 - Sensors edge cases with out-of-range humidity values
+- Runner image base now uses `python:3.11-slim` for DuckDB wheel compatibility in local test builds
 
 ### Security
 - SQL injection prevention in QueryPlan compiler

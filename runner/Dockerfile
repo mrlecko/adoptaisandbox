@@ -8,7 +8,7 @@
 # - Minimal attack surface (no unnecessary packages)
 # - No network access (enforced by --network none at runtime)
 
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 # Install dependencies
 COPY requirements.txt /tmp/requirements.txt

@@ -1,7 +1,7 @@
 # CSV Analyst Chat - Makefile
 # Common development tasks
 
-.PHONY: help dev test clean install build-runner-test test-runner
+.PHONY: help dev test clean install build-runner-test test-runner test-agent-server run-agent run-agent-dev
 
 # Default target
 .DEFAULT_GOAL := help
@@ -31,6 +31,12 @@ dev-down: ## Stop local development environment
 dev-logs: ## View logs from development environment
 	docker compose logs -f
 
+run-agent: ## Run single-file FastAPI agent server
+	uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000
+
+run-agent-dev: ## Run single-file FastAPI agent server with auto-reload
+	uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
+
 ##@ Testing
 
 test: ## Run all tests
@@ -41,6 +47,10 @@ test: ## Run all tests
 test-runner: build-runner-test ## Run runner integration tests (requires Docker)
 	@echo "Running runner integration tests..."
 	RUNNER_TEST_IMAGE=csv-analyst-runner:test pytest tests/integration/test_runner_container.py -v
+
+test-agent-server: ## Run single-file agent server integration tests
+	@echo "Running agent server integration tests..."
+	pytest tests/integration/test_agent_server_singlefile.py -v
 
 test-unit: ## Run unit tests only
 	@echo "Running unit tests..."

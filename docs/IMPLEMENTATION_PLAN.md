@@ -18,8 +18,12 @@ Implemented:
 - Dataset generation + registry (`datasets/registry.json`)
 - QueryPlan DSL + deterministic SQL compiler
 - Sandboxed runner (`runner/runner.py`, `runner/Dockerfile`)
-- Runner hardening for CSV table/path handling
+- Runner hardening (CSV table/path constraints, timeout classification)
 - Runner integration tests (`tests/integration/test_runner_container.py`)
+- Single-file FastAPI agent server (`agent-server/app/main.py`)
+- Minimal static UI from same app (`GET /`) using streaming chat API
+- Run capsule persistence + retrieval (`GET /runs/{run_id}`)
+- Single-file server integration tests (`tests/integration/test_agent_server_singlefile.py`)
 
 Architecture note:
 - QueryPlan DSL is handled upstream in agent-server; runner receives validated SQL + dataset file references only.
@@ -28,10 +32,13 @@ Runner usage today:
 - `make build-runner-test` to build the test image
 - `make test-runner` to run containerized runner integration tests
 
+Agent server usage today:
+- `make run-agent-dev` to run local single-file server + static UI
+- `make test-agent-server` to validate API + streaming + capsule basics
+
 Not yet implemented:
-- Agent-server executors and API orchestration
-- UI integration and end-to-end chat flow
-- Helm/Kubernetes runtime path
+- Production-grade SQL validator coverage (beyond current denylist baseline)
+- Full production deployment/runtime (K8s Job executor + Helm hardening)
 
 ---
 
@@ -182,12 +189,12 @@ graph LR
 8. Write integration tests
 
 **Success criteria:**
-- [ ] Can start agent server
-- [ ] Can call GET /datasets and get metadata
-- [ ] Can call POST /chat and get a response
-- [ ] Agent generates valid QueryPlan JSON
-- [ ] Agent submits plan to runner and returns result
-- [ ] Run capsules are stored and retrievable
+- [x] Can start agent server
+- [x] Can call GET /datasets and get metadata
+- [x] Can call POST /chat and get a response
+- [x] Agent can execute SQL mode and return structured results
+- [x] Agent can execute plan mode (fallback) and compile to SQL
+- [x] Run capsules are stored and retrievable
 
 **Risk mitigation:**
 - Use LangChain's structured output to force JSON schema compliance
@@ -217,12 +224,12 @@ graph LR
 8. Test end-to-end flow
 
 **Success criteria:**
-- [ ] UI loads and shows dataset selector
+- [x] UI loads and shows dataset selector
 - [ ] Can select dataset and see suggested prompts
-- [ ] Can send message and get response
-- [ ] Can see result table
-- [ ] Can see "details" panel with plan/SQL/logs
-- [ ] Run status shows correctly (Pending, Running, Succeeded, Failed)
+- [x] Can send message and get response
+- [x] Can see result table
+- [x] Can see "details" panel with plan/SQL/status
+- [x] Run status updates across streaming stages
 
 **Risk mitigation:**
 - If stock UI doesn't support dataset selection, create minimal custom build
