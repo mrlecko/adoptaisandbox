@@ -121,9 +121,13 @@ jobs:
           pip install -r agent-server/requirements.txt
           pip install pytest
 
+      - name: Build runner test image
+        run: |
+          docker build -t csv-analyst-runner:test ./runner
+
       - name: Start services
         run: |
-          docker compose up -d
+          docker compose up -d --build
           sleep 10  # Wait for services to be ready
 
       - name: Run integration tests
@@ -131,6 +135,7 @@ jobs:
           pytest tests/integration/ -v
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUNNER_TEST_IMAGE: csv-analyst-runner:test
 
       - name: Show logs on failure
         if: failure()

@@ -8,7 +8,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+.obsidian/
 htmlcov/
+agent-server/.ruff_cache
 
 # Node (if any)
 node_modules/

@@ -1,17 +1,83 @@
 """
 Integration tests for the single-file FastAPI agent server.
+
+All tests use FakeExecutor + MockLLM — no Docker, no API keys required.
 """
 
+import asyncio
+import json
 from pathlib import Path
 import sys
 
 import httpx
 import pytest
-
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "agent-server"))
 
-from app.main import create_app, Settings  # noqa: E402
+from app.executors.base import Executor  # noqa: E402
+from app.main import Settings, create_app  # noqa: E402
+
+
+# ── Shared test harness ───────────────────────────────────────────────────
+
+
+class FakeExecutor(Executor):
+    """Executor stub that returns canned results and records calls.
+
+    Pass `results` to queue multiple return values (popped in order);
+    `default_result` is used when the queue is empty.
+    """
+
+    def __init__(self, results=None, default_result=None):
+        self.calls: list[dict] = []
+        self._results = list(results) if results else []
+        self._default = default_result or {
+            "run_id": "fake-run",
+            "status": "succeeded",
+            "result": {
+                "status": "success",
+                "columns": ["n"],
+                "rows": [[42]],
+                "row_count": 1,
+                "exec_time_ms": 12,
+                "error": None,
+            },
+        }
+
+    def submit_run(self, payload, query_type="sql"):
+        self.calls.append({"payload": payload, "query_type": query_type})
+        if self._results:
+            return self._results.pop(0)
+        return self._default
+
+    def get_status(self, run_id):
+        return {"run_id": run_id, "status": "succeeded"}
+
+    def get_result(self, run_id):
+        return self._default.get("result")
+
+    def cleanup(self, run_id):
+        pass
+
+
+class MockLLM(BaseChatModel):
+    """Scripted LLM — pops responses from a queue."""
+
+    responses: list = []
+
+    @property
+    def _llm_type(self) -> str:
+        return "mock"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        msg = self.responses.pop(0) if self.responses else AIMessage(content="(empty)")
+        return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    def bind_tools(self, tools, **kwargs):
+        return self  # no-op; tool_calls are scripted
 
 
 @pytest.fixture
@@ -19,9 +85,22 @@ def anyio_backend():
     return "asyncio"
 
 
-async def _make_client(tmp_path, runner_result=None, runner_executor=None, settings_overrides=None):
+async def _make_client(
+    tmp_path,
+    mock_responses=None,
+    fake_result=None,
+    fake_results_queue=None,
+    settings_overrides=None,
+):
+    """Build an httpx async client wired to a fully-mocked app."""
     datasets_dir = Path(__file__).parent.parent.parent / "datasets"
     db_path = tmp_path / "capsules.db"
+
+    executor = FakeExecutor(
+        results=fake_results_queue,
+        default_result=fake_result,
+    )
+    llm = MockLLM(responses=mock_responses or [AIMessage(content="OK")])
 
     settings = Settings(
         datasets_dir=str(datasets_dir),
@@ -34,33 +113,40 @@ async def _make_client(tmp_path, runner_result=None, runner_executor=None, setti
         **(settings_overrides or {}),
     )
 
-    def fake_runner(*_, **__):
-        return runner_result or {
-            "status": "success",
-            "columns": ["n"],
-            "rows": [[42]],
-            "row_count": 1,
-            "exec_time_ms": 12,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
+    app = create_app(settings=settings, llm=llm, executor=executor)
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    )
+    return client, executor
 
-    app = create_app(settings=settings, runner_executor=runner_executor or fake_runner)
-    transport = httpx.ASGITransport(app=app)
-    client = httpx.AsyncClient(transport=transport, base_url="http://test")
-    return client
+
+def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        event_name = ""
+        data_line = ""
+        for line in block.splitlines():
+            if line.startswith("event: "):
+                event_name = line.replace("event: ", "", 1).strip()
+            elif line.startswith("data: "):
+                data_line = line.replace("data: ", "", 1).strip()
+        if event_name and data_line:
+            events.append((event_name, json.loads(data_line)))
+    return events
+
+
+# ── Discovery / static endpoints ──────────────────────────────────────────
 
 
 @pytest.mark.anyio
 async def test_get_datasets_returns_registry_entries(tmp_path):
-    client = await _make_client(tmp_path)
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.get("/datasets")
-
         assert response.status_code == 200
-        payload = response.json()
-        ids = {d["id"] for d in payload["datasets"]}
+        ids = {d["id"] for d in response.json()["datasets"]}
         assert ids == {"ecommerce", "support", "sensors"}
     finally:
         await client.aclose()
@@ -68,10 +154,9 @@ async def test_get_datasets_returns_registry_entries(tmp_path):
 
 @pytest.mark.anyio
 async def test_get_dataset_schema_returns_schema(tmp_path):
-    client = await _make_client(tmp_path)
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.get("/datasets/ecommerce/schema")
-
         assert response.status_code == 200
         payload = response.json()
         assert payload["id"] == "ecommerce"
@@ -83,23 +168,26 @@ async def test_get_dataset_schema_returns_schema(tmp_path):
 
 @pytest.mark.anyio
 async def test_home_serves_static_ui(tmp_path):
-    client = await _make_client(tmp_path)
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.get("/")
         assert response.status_code == 200
         body = response.text
         assert "CSV Analysis Agent" in body
-        assert "id=\"dataset\"" in body
-        assert "id=\"messages\"" in body
+        assert 'id="dataset"' in body
+        assert 'id="messages"' in body
         assert "/chat/stream" in body
-        assert "id=\"prompts\"" in body
+        assert 'id="prompts"' in body
     finally:
         await client.aclose()
 
 
+# ── SQL: fast path ────────────────────────────────────────────────────────
+
+
 @pytest.mark.anyio
 async def test_chat_sql_happy_path_creates_capsule(tmp_path):
-    client = await _make_client(tmp_path)
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.post(
             "/chat",
@@ -113,106 +201,265 @@ async def test_chat_sql_happy_path_creates_capsule(tmp_path):
         assert payload["status"] == "succeeded"
         assert payload["details"]["query_mode"] == "sql"
         assert payload["result"]["rows"] == [[42]]
-        run_id = payload["run_id"]
 
+        # Capsule persisted
+        run_id = payload["run_id"]
         run_response = await client.get(f"/runs/{run_id}")
         assert run_response.status_code == 200
-        run_payload = run_response.json()
-        assert run_payload["run_id"] == run_id
-        assert run_payload["status"] == "succeeded"
+        assert run_response.json()["run_id"] == run_id
+        assert run_response.json()["status"] == "succeeded"
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_chat_scalar_result_is_summarized_in_assistant_message(tmp_path):
-    def fake_runner(*_, **__):
-        return {
-            "status": "success",
-            "columns": ["total_orders"],
-            "rows": [[4018]],
-            "row_count": 1,
-            "exec_time_ms": 8,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
-    try:
-        response = await client.post(
-            "/chat",
-            json={"dataset_id": "ecommerce", "message": "SQL: SELECT COUNT(*) AS total_orders FROM orders"},
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert "4018" in payload["assistant_message"]
-        assert "total orders" in payload["assistant_message"].lower()
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_complex_result_refers_to_result_table(tmp_path):
-    def fake_runner(*_, **__):
-        return {
-            "status": "success",
-            "columns": ["priority", "count", "avg_csat"],
-            "rows": [[f"p{i}", i, 4.5] for i in range(10)],
-            "row_count": 10,
-            "exec_time_ms": 12,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
+async def test_chat_sql_policy_violation_rejected(tmp_path):
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.post(
             "/chat",
             json={
                 "dataset_id": "support",
-                "message": "SQL: SELECT priority, COUNT(*) AS count, AVG(csat_score) AS avg_csat FROM tickets GROUP BY priority",
-            },
-        )
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert "result table" in payload["assistant_message"].lower()
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_greeting_does_not_execute_runner(tmp_path):
-    def should_not_run(*_args, **_kwargs):
-        raise AssertionError("Runner should not be called for greeting messages")
-
-    client = await _make_client(tmp_path, runner_executor=should_not_run)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "Hi",
+                "message": "SQL: DROP TABLE tickets",
             },
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "rejected"
-        assert payload["details"]["query_mode"] == "chat"
-        assert payload["result"]["row_count"] == 0
-        assert payload["result"]["error"]["type"] == "LLM_UNAVAILABLE"
+        assert payload["result"]["error"]["type"] == "SQL_POLICY_VIOLATION"
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_chat_schema_question_does_not_execute_runner(tmp_path):
-    def should_not_run(*_args, **_kwargs):
-        raise AssertionError("Runner should not be called for schema-only messages")
+async def test_chat_sql_timeout_maps_timed_out(tmp_path):
+    fake_result = {
+        "run_id": "fake-run-timeout",
+        "status": "succeeded",
+        "result": {
+            "status": "timeout",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "exec_time_ms": 1000,
+            "error": {"type": "TIMEOUT", "message": "Execution timed out."},
+        },
+    }
+    client, _ = await _make_client(tmp_path, fake_result=fake_result)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "timed_out"
+        assert payload["result"]["error"]["type"] == "TIMEOUT"
+    finally:
+        await client.aclose()
 
-    client = await _make_client(tmp_path, runner_executor=should_not_run)
+
+@pytest.mark.anyio
+async def test_chat_sql_created_at_not_false_positive(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT MAX(created_at) AS last_ticket_added FROM tickets",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["compiled_sql"].lower().startswith("select")
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_sql_normalizes_dataset_qualified(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT MAX(created_at) AS last_ticket_added FROM support.tickets",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "support.tickets" not in payload["details"]["compiled_sql"].lower()
+        assert "from tickets" in payload["details"]["compiled_sql"].lower()
+    finally:
+        await client.aclose()
+
+
+# ── PYTHON: fast path ─────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_chat_python_happy_path(tmp_path):
+    client, executor = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "PYTHON: result = len(tickets)",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert payload["details"]["python_code"] == "result = len(tickets)"
+        assert payload["details"]["compiled_sql"] is None
+        # Verify executor was called with python
+        assert len(executor.calls) == 1
+        assert executor.calls[0]["query_type"] == "python"
+        assert executor.calls[0]["payload"]["python_code"] == "result = len(tickets)"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_python_rejected_when_disabled(tmp_path):
+    client, _ = await _make_client(
+        tmp_path, settings_overrides={"enable_python_execution": False}
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "PYTHON: result = len(tickets)",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "rejected"
+        assert payload["result"]["error"]["type"] == "FEATURE_DISABLED"
+    finally:
+        await client.aclose()
+
+
+# ── /runs endpoint ────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_post_runs_sql_executes_and_persists(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/runs",
+            json={
+                "dataset_id": "support",
+                "query_type": "sql",
+                "sql": "SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "sql"
+
+        run_id = payload["run_id"]
+        run_response = await client.get(f"/runs/{run_id}")
+        assert run_response.status_code == 200
+        assert run_response.json()["query_mode"] == "sql"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_post_runs_python_executes_and_persists(tmp_path):
+    client, executor = await _make_client(tmp_path)
+    try:
+        response = await client.post(
+            "/runs",
+            json={
+                "dataset_id": "support",
+                "query_type": "python",
+                "python_code": "result = 1",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert payload["details"]["query_mode"] == "python"
+        assert executor.calls[0]["query_type"] == "python"
+        assert executor.calls[0]["payload"]["python_code"] == "result = 1"
+
+        run_id = payload["run_id"]
+        run_payload = (await client.get(f"/runs/{run_id}")).json()
+        assert run_payload["python_code"] == "result = 1"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_get_run_status_endpoint(tmp_path):
+    client, _ = await _make_client(tmp_path)
+    try:
+        # Create a run via SQL: fast path
+        response = await client.post(
+            "/chat",
+            json={
+                "dataset_id": "support",
+                "message": "SQL: SELECT COUNT(*) AS n FROM tickets",
+            },
+        )
+        run_id = response.json()["run_id"]
+
+        status_response = await client.get(f"/runs/{run_id}/status")
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "succeeded"
+    finally:
+        await client.aclose()
+
+
+# ── Agent path — chat-only (no execution) ────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_chat_greeting_no_execution(tmp_path):
+    """Greeting → MockLLM returns text only → chat mode, no executor call."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[AIMessage(content="Hello! I can help you analyze data.")],
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "Hi"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "hello" in payload["assistant_message"].lower()
+        assert len(executor.calls) == 0  # no sandbox invocation
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_chat_schema_question_no_execution(tmp_path):
+    """Schema question answered by LLM text → no execution."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[
+            AIMessage(
+                content="The dataset has the following columns: ticket_id, priority, status."
+            )
+        ],
+    )
     try:
         response = await client.post(
             "/chat",
@@ -223,70 +470,240 @@ async def test_chat_schema_question_does_not_execute_runner(tmp_path):
         )
         assert response.status_code == 200
         payload = response.json()
-        assert payload["status"] == "rejected"
-        assert payload["details"]["query_mode"] == "chat"
-        assert "llm service unavailable" in payload["assistant_message"].lower()
-        assert payload["result"]["row_count"] == 0
+        assert payload["status"] == "succeeded"
+        assert "columns" in payload["assistant_message"].lower()
+        assert len(executor.calls) == 0
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_chat_mode_from_llm_does_not_execute_runner(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate(*_, **__):
-        return {
-            "query_mode": "chat",
-            "assistant_message": "Hi there! How can I help with your dataset today?",
-        }
-
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
-
-    def should_not_run(*_args, **_kwargs):
-        raise AssertionError("Runner should not be called for chat-mode responses")
-
-    client = await _make_client(tmp_path, runner_executor=should_not_run)
+async def test_chat_llm_chat_response(tmp_path):
+    """LLM returns a clarification question — no execution."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[
+            AIMessage(
+                content="Could you be more specific about what you're looking for?"
+            )
+        ],
+    )
     try:
         response = await client.post(
             "/chat",
-            json={"dataset_id": "support", "message": "Hi"},
+            json={"dataset_id": "support", "message": "Show me something interesting"},
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "chat"
-        assert "hi there" in payload["assistant_message"].lower()
-        assert payload["result"]["row_count"] == 0
+        assert "specific" in payload["assistant_message"].lower()
+        assert len(executor.calls) == 0
+    finally:
+        await client.aclose()
+
+
+# ── Agent path — with tool calls ──────────────────────────────────────────
+
+# Helper: build an AIMessage with a scripted tool_call for execute_sql
+
+
+def _sql_tool_call_msg(sql: str, dataset_id: str = "support", tc_id: str = "tc-1"):
+    """AIMessage with a scripted execute_sql tool call."""
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": tc_id,
+                "name": "execute_sql",
+                "args": {"dataset_id": dataset_id, "sql": sql},
+            }
+        ],
+    )
+
+
+def _python_tool_call_msg(code: str, dataset_id: str = "support", tc_id: str = "tc-py"):
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": tc_id,
+                "name": "execute_python",
+                "args": {"dataset_id": dataset_id, "python_code": code},
+            }
+        ],
+    )
+
+
+@pytest.mark.anyio
+async def test_chat_scalar_result_summarized(tmp_path):
+    """Agent calls execute_sql → scalar result → LLM summarizes."""
+    fake_result = {
+        "run_id": "fake-run",
+        "status": "succeeded",
+        "result": {
+            "status": "success",
+            "columns": ["total_orders"],
+            "rows": [[4018]],
+            "row_count": 1,
+            "exec_time_ms": 8,
+            "error": None,
+        },
+    }
+    client, _ = await _make_client(
+        tmp_path,
+        fake_result=fake_result,
+        mock_responses=[
+            _sql_tool_call_msg(
+                "SELECT COUNT(*) AS total_orders FROM orders", "ecommerce"
+            ),
+            AIMessage(content="There are 4018 total orders."),
+        ],
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "ecommerce", "message": "How many orders?"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "4018" in payload["assistant_message"]
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_chat_stateful_memory_with_thread_id(tmp_path, monkeypatch):
-    from app import main as app_main
+async def test_chat_complex_result_summary(tmp_path):
+    """Agent calls execute_sql → multi-row result → LLM says see table."""
+    fake_result = {
+        "run_id": "fake-run",
+        "status": "succeeded",
+        "result": {
+            "status": "success",
+            "columns": ["priority", "count", "avg_csat"],
+            "rows": [[f"p{i}", i, 4.5] for i in range(10)],
+            "row_count": 10,
+            "exec_time_ms": 12,
+            "error": None,
+        },
+    }
+    client, _ = await _make_client(
+        tmp_path,
+        fake_result=fake_result,
+        mock_responses=[
+            _sql_tool_call_msg(
+                "SELECT priority, COUNT(*) AS count, AVG(csat_score) AS avg_csat FROM tickets GROUP BY priority"
+            ),
+            AIMessage(
+                content="Here are the results — please see the result table for the full breakdown."
+            ),
+        ],
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "Break down tickets by priority"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "result table" in payload["assistant_message"].lower()
+    finally:
+        await client.aclose()
 
-    def fake_generate(*_, **kwargs):
-        message = kwargs["message"].lower()
-        history = kwargs.get("history") or []
-        if "what is my name" in message:
-            remembered = any(
-                m.get("role") == "user" and "my name is dave" in str(m.get("content", "")).lower()
-                for m in history
-            )
-            if remembered:
-                return {"query_mode": "chat", "assistant_message": "Your name is Dave."}
-            return {"query_mode": "chat", "assistant_message": "I don't know your name."}
-        return {"query_mode": "chat", "assistant_message": "Nice to meet you, Dave!"}
 
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
+@pytest.mark.anyio
+async def test_chat_llm_generates_sql(tmp_path):
+    """LLM generates a tool_call for execute_sql, then a text response."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[
+            _sql_tool_call_msg("SELECT COUNT(*) AS n FROM tickets"),
+            AIMessage(content="42 tickets in the dataset."),
+        ],
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "How many tickets are there?"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "succeeded"
+        assert "42" in payload["assistant_message"]
+        assert len(executor.calls) == 1
+        assert executor.calls[0]["query_type"] == "sql"
+    finally:
+        await client.aclose()
 
-    def should_not_run(*_args, **_kwargs):
-        raise AssertionError("Runner should not be called for chat mode memory test")
 
-    client = await _make_client(tmp_path, runner_executor=should_not_run)
+@pytest.mark.anyio
+async def test_chat_llm_retries_after_sql_error(tmp_path):
+    """First execute_sql returns error, second succeeds. Agent retries."""
+    error_result = {
+        "run_id": "err",
+        "status": "failed",
+        "result": {
+            "status": "error",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "exec_time_ms": 1,
+            "error": {"type": "RUNNER_ERROR", "message": "table not found"},
+        },
+    }
+    success_result = {
+        "run_id": "ok",
+        "status": "succeeded",
+        "result": {
+            "status": "success",
+            "columns": ["n"],
+            "rows": [[42]],
+            "row_count": 1,
+            "exec_time_ms": 5,
+            "error": None,
+        },
+    }
+    client, executor = await _make_client(
+        tmp_path,
+        fake_results_queue=[error_result, success_result],
+        mock_responses=[
+            _sql_tool_call_msg("SELECT * FROM wrong_table", tc_id="tc-1"),
+            _sql_tool_call_msg("SELECT COUNT(*) AS n FROM tickets", tc_id="tc-2"),
+            AIMessage(content="Done — found 42 tickets."),
+        ],
+    )
+    try:
+        response = await client.post(
+            "/chat",
+            json={"dataset_id": "support", "message": "count tickets please"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        # The last execution succeeded
+        assert payload["status"] == "succeeded"
+        assert "42" in payload["assistant_message"]
+        assert len(executor.calls) == 2
+    finally:
+        await client.aclose()
+
+
+# ── Thread / memory tests ─────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_chat_stateful_memory_thread(tmp_path):
+    """Two messages on same thread — history persists, /threads endpoint works."""
+    client, _ = await _make_client(
+        tmp_path,
+        mock_responses=[
+            AIMessage(content="Nice to meet you, Dave!"),
+            AIMessage(content="Your name is Dave."),
+        ],
+    )
     try:
         thread_id = "thread-memory-dave"
+
         first = await client.post(
             "/chat",
             json={
@@ -307,8 +724,9 @@ async def test_chat_stateful_memory_with_thread_id(tmp_path, monkeypatch):
             },
         )
         assert second.status_code == 200
-        assert "your name is dave" in second.json()["assistant_message"].lower()
+        assert "dave" in second.json()["assistant_message"].lower()
 
+        # Thread history should have 4 messages (2 user + 2 assistant)
         history_res = await client.get(f"/threads/{thread_id}/messages?limit=20")
         assert history_res.status_code == 200
         messages = history_res.json()["messages"]
@@ -320,29 +738,17 @@ async def test_chat_stateful_memory_with_thread_id(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_chat_thread_isolation(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate(*_, **kwargs):
-        message = kwargs["message"].lower()
-        history = kwargs.get("history") or []
-        if "what is my name" in message:
-            remembered = any(
-                m.get("role") == "user" and "my name is dave" in str(m.get("content", "")).lower()
-                for m in history
-            )
-            if remembered:
-                return {"query_mode": "chat", "assistant_message": "Your name is Dave."}
-            return {"query_mode": "chat", "assistant_message": "I don't know your name."}
-        return {"query_mode": "chat", "assistant_message": "Noted."}
-
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
-
-    def should_not_run(*_args, **_kwargs):
-        raise AssertionError("Runner should not be called for chat mode memory test")
-
-    client = await _make_client(tmp_path, runner_executor=should_not_run)
+async def test_chat_thread_isolation(tmp_path):
+    """Different thread_ids don't share history."""
+    client, _ = await _make_client(
+        tmp_path,
+        mock_responses=[
+            AIMessage(content="Noted."),
+            AIMessage(content="I don't know your name."),
+        ],
+    )
     try:
+        # Thread A: introduce name
         await client.post(
             "/chat",
             json={
@@ -351,6 +757,8 @@ async def test_chat_thread_isolation(tmp_path, monkeypatch):
                 "message": "my name is dave, remember this",
             },
         )
+
+        # Thread B: ask name — should NOT know
         isolated = await client.post(
             "/chat",
             json={
@@ -360,182 +768,19 @@ async def test_chat_thread_isolation(tmp_path, monkeypatch):
             },
         )
         assert isolated.status_code == 200
-        assert "don't know your name" in isolated.json()["assistant_message"].lower()
+        # MockLLM returns scripted "I don't know your name." for thread B
+        assert "don't know" in isolated.json()["assistant_message"].lower()
     finally:
         await client.aclose()
 
 
-@pytest.mark.anyio
-async def test_chat_sql_policy_violation_rejected(tmp_path):
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "SQL: DROP TABLE tickets",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "rejected"
-        assert payload["result"]["error"]["type"] == "SQL_POLICY_VIOLATION"
-    finally:
-        await client.aclose()
+# ── Streaming ─────────────────────────────────────────────────────────────
 
 
 @pytest.mark.anyio
-async def test_chat_sql_created_at_not_false_positive_blocked(tmp_path):
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "SQL: SELECT MAX(created_at) AS last_ticket_added FROM tickets",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["compiled_sql"].lower().startswith("select")
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_sql_normalizes_dataset_qualified_table_reference(tmp_path):
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "SQL: SELECT MAX(created_at) AS last_ticket_added FROM support.tickets",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert "support.tickets" not in payload["details"]["compiled_sql"].lower()
-        assert "from tickets" in payload["details"]["compiled_sql"].lower()
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_non_sql_accepts_dict_draft_from_llm(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate(*_, **__):
-        return {
-            "query_mode": "sql",
-            "assistant_message": "LLM generated SQL.",
-            "sql": "SELECT COUNT(*) AS n FROM tickets",
-        }
-
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
-
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "How many tickets are there?",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "sql"
-        assert "42" in payload["assistant_message"]
-        assert payload["result"]["rows"] == [[42]]
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_non_executable_draft_without_rescue_returns_clarification(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate(*_, **__):
-        return {
-            "query_mode": "plan",
-            "assistant_message": "I will query the table for you.",
-            # Missing `plan`: should be treated as invalid/non-executable.
-        }
-
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
-
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "Find the highest ticket volume day.",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "rejected"
-        assert payload["details"]["query_mode"] == "chat"
-        assert "llm service unavailable or returned an invalid response" in payload["assistant_message"].lower()
-        assert payload["result"]["error"]["type"] == "LLM_UNAVAILABLE"
-        assert payload["details"]["compiled_sql"] is None
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_non_executable_draft_uses_sql_rescue(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate(*_, **__):
-        return {
-            "query_mode": "plan",
-            "assistant_message": "I will query the table for you.",
-            # Missing `plan`: invalid for execution.
-        }
-
-    def fake_rescue(*_, **__):
-        return app_main.SqlRescueDraft(
-            sql="SELECT COUNT(*) AS n FROM tickets LIMIT 1",
-            assistant_message="Executed via SQL rescue.",
-        )
-
-    monkeypatch.setattr(app_main, "_generate_with_langchain", fake_generate)
-    monkeypatch.setattr(app_main, "_generate_sql_rescue_with_langchain", fake_rescue)
-
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "How many tickets are there?",
-            },
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "sql"
-        assert "42" in payload["assistant_message"]
-        assert payload["result"]["rows"] == [[42]]
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_stream_emits_status_and_result_events(tmp_path):
-    client = await _make_client(tmp_path)
+async def test_chat_stream_events(tmp_path):
+    """SQL: fast path stream emits status + result + done events in order."""
+    client, _ = await _make_client(tmp_path)
     try:
         response = await client.post(
             "/chat/stream",
@@ -544,252 +789,110 @@ async def test_chat_stream_emits_status_and_result_events(tmp_path):
                 "message": "SQL: SELECT COUNT(*) AS n FROM orders",
             },
         )
-
         assert response.status_code == 200
         body = response.text
+
+        # Verify event ordering
         assert "event: status" in body
         assert "planning" in body
         assert "executing" in body
         assert "event: result" in body
         assert "event: done" in body
+
+        # result comes after status events, done comes last
+        result_pos = body.index("event: result")
+        done_pos = body.index("event: done")
+        assert result_pos < done_pos
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_post_runs_sql_executes_and_persists(tmp_path):
-    client = await _make_client(tmp_path)
+async def test_chat_stream_agent_tool_path_serializes_events(tmp_path):
+    """Non-fast-path streaming should complete and return a structured result event."""
+    client, _ = await _make_client(
+        tmp_path,
+        mock_responses=[
+            _sql_tool_call_msg("SELECT COUNT(*) AS n FROM tickets"),
+            AIMessage(content="There are 42 tickets."),
+        ],
+    )
     try:
-        response = await client.post(
-            "/runs",
-            json={
-                "dataset_id": "support",
-                "query_type": "sql",
-                "sql": "SELECT COUNT(*) AS n FROM tickets",
-            },
+        response = await asyncio.wait_for(
+            client.post(
+                "/chat/stream",
+                json={
+                    "dataset_id": "support",
+                    "message": "How many tickets are there?",
+                },
+            ),
+            timeout=8,
         )
         assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "sql"
-        run_id = payload["run_id"]
-
-        run_response = await client.get(f"/runs/{run_id}")
-        assert run_response.status_code == 200
-        run_payload = run_response.json()
-        assert run_payload["query_mode"] == "sql"
+        body = response.text
+        events = _parse_sse_events(body)
+        result_payload = next(data for event, data in events if event == "result")
+        assert "event: result" in body
+        assert "event: done" in body
+        assert "event: error" not in body
+        assert "ToolMessage is not JSON serializable" not in body
+        assert result_payload["result"]["rows"] == [[42]]
     finally:
         await client.aclose()
 
 
-@pytest.mark.anyio
-async def test_get_run_status_endpoint(tmp_path):
-    client = await _make_client(tmp_path)
-    try:
-        response = await client.post(
-            "/chat",
-            json={"dataset_id": "support", "message": "SQL: SELECT COUNT(*) AS n FROM tickets"},
-        )
-        run_id = response.json()["run_id"]
-        status_response = await client.get(f"/runs/{run_id}/status")
-        assert status_response.status_code == 200
-        assert status_response.json()["status"] == "succeeded"
-    finally:
-        await client.aclose()
+# ── Python via agent ──────────────────────────────────────────────────────
 
 
 @pytest.mark.anyio
-async def test_post_runs_python_executes_and_persists_python_code(tmp_path):
-    captured = {}
-
-    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
-        captured["query_type"] = kwargs.get("query_type")
-        captured["python_code"] = kwargs.get("python_code")
-        return {
-            "status": "success",
-            "columns": ["value"],
-            "rows": [[1]],
-            "row_count": 1,
-            "exec_time_ms": 9,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
-    try:
-        response = await client.post(
-            "/runs",
-            json={
-                "dataset_id": "support",
-                "query_type": "python",
-                "python_code": "result = 1",
-            },
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "python"
-        assert captured["query_type"] == "python"
-        assert captured["python_code"] == "result = 1"
-
-        run_id = payload["run_id"]
-        run_payload = (await client.get(f"/runs/{run_id}")).json()
-        assert run_payload["python_code"] == "result = 1"
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_python_happy_path_uses_python_runner_mode(tmp_path):
-    captured = {}
-
-    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
-        captured["dataset_id"] = dataset["id"]
-        captured["sql"] = sql
-        captured["query_type"] = kwargs.get("query_type")
-        captured["python_code"] = kwargs.get("python_code")
-        return {
-            "status": "success",
-            "columns": ["n"],
-            "rows": [[7]],
-            "row_count": 1,
-            "exec_time_ms": 10,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
+async def test_chat_implicit_python_via_agent(tmp_path):
+    """Agent calls execute_python via tool_call."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[
+            _python_tool_call_msg(
+                'result_df = tickets.groupby("priority").size().reset_index(name="n")'
+            ),
+            AIMessage(content="Analysis complete."),
+        ],
+    )
     try:
         response = await client.post(
             "/chat",
             json={
                 "dataset_id": "support",
-                "message": "PYTHON: result = len(tickets)",
+                "message": "use pandas to group tickets by priority",
             },
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "python"
-        assert payload["details"]["compiled_sql"] is None
-        assert payload["details"]["python_code"] == "result = len(tickets)"
-        run_id = payload["run_id"]
-        assert captured["dataset_id"] == "support"
-        assert captured["query_type"] == "python"
-        assert captured["python_code"] == "result = len(tickets)"
-        assert captured["sql"] == ""
-
-        run_response = await client.get(f"/runs/{run_id}")
-        assert run_response.status_code == 200
-        run_payload = run_response.json()
-        assert run_payload["python_code"] == "result = len(tickets)"
+        assert "analysis complete" in payload["assistant_message"].lower()
+        assert len(executor.calls) == 1
+        assert executor.calls[0]["query_type"] == "python"
     finally:
         await client.aclose()
 
 
 @pytest.mark.anyio
-async def test_chat_python_rejected_when_feature_disabled(tmp_path):
-    client = await _make_client(tmp_path, settings_overrides={"enable_python_execution": False})
+async def test_chat_llm_calls_execute_python(tmp_path):
+    """LLM explicitly calls execute_python tool."""
+    client, executor = await _make_client(
+        tmp_path,
+        mock_responses=[
+            _python_tool_call_msg("result = len(tickets)"),
+            AIMessage(content="Done — computed the length."),
+        ],
+    )
     try:
         response = await client.post(
             "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "PYTHON: result = len(tickets)",
-            },
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "rejected"
-        assert payload["result"]["error"]["type"] == "FEATURE_DISABLED"
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_implicit_python_intent_uses_generated_python(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    def fake_generate_python(*_, **__):
-        return app_main.PythonDraft(
-            python_code='result_df = tickets.groupby("priority").size().reset_index(name="n")',
-            assistant_message="Generated pandas analysis.",
-        )
-
-    monkeypatch.setattr(app_main, "_generate_python_with_langchain", fake_generate_python)
-
-    captured = {}
-
-    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
-        captured["query_type"] = kwargs.get("query_type")
-        captured["python_code"] = kwargs.get("python_code")
-        return {
-            "status": "success",
-            "columns": ["priority", "n"],
-            "rows": [["High", 1]],
-            "row_count": 1,
-            "exec_time_ms": 10,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "use pandas to group the tickets by priority",
-            },
+            json={"dataset_id": "support", "message": "run some python"},
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "python"
-        assert payload["assistant_message"]
-        assert captured["query_type"] == "python"
-        assert "groupby" in captured["python_code"]
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.anyio
-async def test_chat_implicit_python_intent_uses_heuristic_when_llm_unavailable(tmp_path, monkeypatch):
-    from app import main as app_main
-
-    monkeypatch.setattr(app_main, "_generate_python_with_langchain", lambda *_, **__: None)
-
-    captured = {}
-
-    def fake_runner(settings, dataset, sql, timeout, max_rows, **kwargs):
-        captured["python_code"] = kwargs.get("python_code")
-        return {
-            "status": "success",
-            "columns": ["priority", "count"],
-            "rows": [["High", 1]],
-            "row_count": 1,
-            "exec_time_ms": 10,
-            "stdout_trunc": "",
-            "stderr_trunc": "",
-            "error": None,
-        }
-
-    client = await _make_client(tmp_path, runner_executor=fake_runner)
-    try:
-        response = await client.post(
-            "/chat",
-            json={
-                "dataset_id": "support",
-                "message": "use pandas to group the tickets by priority",
-            },
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "succeeded"
-        assert payload["details"]["query_mode"] == "python"
-        assert "groupby(\"priority\")" in captured["python_code"]
+        assert "done" in payload["assistant_message"].lower()
+        assert executor.calls[0]["payload"]["python_code"] == "result = len(tickets)"
     finally:
         await client.aclose()

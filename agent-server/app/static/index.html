@@ -212,6 +212,9 @@
     }
     .msg-bubble.user      { background: var(--user-bg);  border-bottom-left-radius:  3px; }
     .msg-bubble.assistant { background: var(--asst-bg);  border-bottom-right-radius: 3px; }
+    .msg-bubble.assistant table { margin: .45rem 0; }
+    .msg-bubble.assistant th,
+    .msg-bubble.assistant td { font-size: .79rem; }
 
     /* Input area */
     .input-area {
@@ -536,13 +539,90 @@
   // ─── Messages ─────────────────────────────────────────
   function clearMessages() { document.getElementById('messages').innerHTML = ''; }
 
+  function escHtml(s) {
+    return String(s)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function parseMdRow(line) {
+    let s = String(line || '').trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+    return s.split('|').map(x => x.trim());
+  }
+
+  function isMdTableDivider(line) {
+    const s = String(line || '').trim();
+    if (!s.includes('|')) return false;
+    const cells = parseMdRow(s);
+    if (!cells.length) return false;
+    return cells.every(c => /^:?-{3,}:?$/.test(c));
+  }
+
+  function renderAssistantMarkdown(text) {
+    const lines = String(text || '').split('\n');
+    const parts = [];
+    let i = 0;
+    let textBuf = [];
+
+    function flushText() {
+      if (!textBuf.length) return;
+      parts.push('<span>' + escHtml(textBuf.join('\n')) + '</span>');
+      textBuf = [];
+    }
+
+    while (i < lines.length) {
+      const cur = lines[i] || '';
+      const nxt = lines[i + 1] || '';
+
+      if (cur.includes('|') && isMdTableDivider(nxt)) {
+        const header = parseMdRow(cur);
+        const rows = [];
+        let j = i + 2;
+        while (j < lines.length && (lines[j] || '').trim().includes('|')) {
+          rows.push(parseMdRow(lines[j]));
+          j += 1;
+        }
+        flushText();
+        let h = '<table><thead><tr>';
+        for (const cell of header) h += '<th>' + escHtml(cell) + '</th>';
+        h += '</tr></thead><tbody>';
+        for (const row of rows) {
+          h += '<tr>';
+          for (let c = 0; c < header.length; c++) {
+            h += '<td>' + escHtml(c < row.length ? row[c] : '') + '</td>';
+          }
+          h += '</tr>';
+        }
+        h += '</tbody></table>';
+        parts.push(h);
+        i = j;
+        continue;
+      }
+
+      textBuf.push(cur);
+      i += 1;
+    }
+
+    flushText();
+    return parts.join('\n');
+  }
+
   function appendMessage(actor, text) {
     const list   = document.getElementById('messages');
     const row    = document.createElement('div');
     row.className = 'msg-row ' + actor;
     const bubble = document.createElement('div');
     bubble.className  = 'msg-bubble ' + actor;
-    bubble.textContent = text;
+    if (actor === 'assistant') {
+      bubble.innerHTML = renderAssistantMarkdown(text);
+    } else {
+      bubble.textContent = text;
+    }
     row.appendChild(bubble);
     list.appendChild(row);
     list.scrollTop = list.scrollHeight;

@@ -1,13 +1,9 @@
 """
-Single-file FastAPI agent server for CSV Analyst Chat.
+FastAPI agent server for CSV Analyst Chat.
 
-This module intentionally keeps the first implementation compact:
-- One FastAPI app
-- Classic LangChain-compatible query generation path (optional, API-key gated)
-- Tool-like deterministic execution helpers
-- Runner sandbox invocation
-- SQLite run capsules
-- Static UI + streaming endpoint
+Entry points:
+  - create_app(settings, llm, executor) — factory used by production and tests
+  - module-level `app = create_app()` — picked up by uvicorn
 """
 
 from __future__ import annotations
@@ -16,37 +12,40 @@ import csv
 import json
 import logging
 import os
-import re
-import subprocess
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
+import anyio
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel, Field, model_validator
 
+from .agent import AgentSession, build_agent
 from .datasets import get_dataset_by_id, load_registry
 from .executors import create_sandbox_executor
-from .models.query_plan import QueryPlan, SelectColumn
-from .storage import MessageStore, create_message_store
+from .llm import create_llm
+from .storage import create_message_store
 from .storage.capsules import get_capsule, init_capsule_db, insert_capsule
+from .tools import create_tools
 from .validators.compiler import QueryPlanCompiler
 from .validators.sql_policy import normalize_sql_for_dataset, validate_sql_policy
 
 try:
     from dotenv import load_dotenv
-except Exception:  # pragma: no cover - optional dependency guard
+except Exception:  # pragma: no cover
     load_dotenv = None
 
 
 LOGGER = logging.getLogger("csv-analyst-agent-server")
 
 
+# ── Settings ──────────────────────────────────────────────────────────────
+
+
 class Settings(BaseModel):
-    """Runtime configuration for the single-file server."""
+    """Runtime configuration for the server."""
 
     datasets_dir: str = Field(default="datasets")
     capsule_db_path: str = Field(default="agent-server/capsules.db")
@@ -83,32 +82,29 @@ class Settings(BaseModel):
         return self
 
 
-class ChatRequest(BaseModel):
-    """Chat request body."""
+# ── API Models ────────────────────────────────────────────────────────────
 
+
+class ChatRequest(BaseModel):
     dataset_id: str
     message: str
     thread_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
-    """Chat response body."""
-
     assistant_message: str
     run_id: str
     thread_id: Optional[str] = None
-    status: Literal["succeeded", "failed", "rejected"]
+    status: Literal["succeeded", "failed", "rejected", "timed_out"]
     result: Dict[str, Any]
     details: Dict[str, Any]
 
 
 class StreamRequest(ChatRequest):
-    """Streaming request body (same as chat request)."""
+    pass
 
 
 class RunSubmitRequest(BaseModel):
-    """Direct run submission endpoint payload."""
-
     dataset_id: str
     query_type: Literal["sql", "python", "plan"] = "sql"
     sql: Optional[str] = None
@@ -116,77 +112,11 @@ class RunSubmitRequest(BaseModel):
     plan_json: Optional[Dict[str, Any]] = None
 
 
-class AgentDraft(BaseModel):
-    """Structured output target for optional LLM query generation."""
-
-    query_mode: Literal["plan", "sql", "chat"] = "plan"
-    assistant_message: str = "Done."
-    plan: Optional[QueryPlan] = None
-    sql: Optional[str] = None
-
-    @model_validator(mode="after")
-    def _validate_executable_payload(self) -> "AgentDraft":
-        if self.query_mode == "plan" and self.plan is None:
-            raise ValueError("plan is required when query_mode='plan'")
-        if self.query_mode == "sql" and not (self.sql and self.sql.strip()):
-            raise ValueError("sql is required when query_mode='sql'")
-        return self
-
-
-class SqlRescueDraft(BaseModel):
-    """Backup structured output when plan generation is non-executable."""
-
-    sql: str
-    assistant_message: str = "Executed query."
-
-    @model_validator(mode="after")
-    def _validate_sql(self) -> "SqlRescueDraft":
-        if not self.sql.strip():
-            raise ValueError("sql is required")
-        return self
-
-
-class PythonDraft(BaseModel):
-    """Structured python execution payload."""
-
-    python_code: str
-    assistant_message: str = "Executed Python analysis."
-
-    @model_validator(mode="after")
-    def _validate_python(self) -> "PythonDraft":
-        if not self.python_code.strip():
-            raise ValueError("python_code is required")
-        return self
-
-
-def _is_python_intent(message: str) -> bool:
-    lowered = message.lower()
-    python_markers = [
-        "use pandas",
-        "using pandas",
-        "python dataframe",
-        "in python",
-        "with pandas",
-        "python code",
-    ]
-    return any(marker in lowered for marker in python_markers)
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _log_event(event: str, **fields: Any) -> None:
-    payload = {"event": event, **fields}
-    LOGGER.info(json.dumps(payload, default=str))
-
-
-def _load_registry(settings: Settings) -> Dict[str, Any]:
-    return load_registry(settings.datasets_dir)
-
-
-def _dataset_by_id(registry: Dict[str, Any], dataset_id: str) -> Dict[str, Any]:
-    return get_dataset_by_id(registry, dataset_id)
 
 
 def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -202,610 +132,178 @@ def _sample_rows(csv_path: Path, max_rows: int = 5) -> list[dict[str, Any]]:
     return rows
 
 
-def _validate_sql_policy(sql: str) -> Optional[str]:
-    return validate_sql_policy(sql)
-
-
-def _normalize_sql_for_dataset(sql: str, dataset_id: str) -> str:
-    return normalize_sql_for_dataset(sql, dataset_id)
-
-
-def _init_capsule_db(db_path: str) -> None:
-    init_capsule_db(db_path)
-
-
-def _insert_capsule(db_path: str, capsule: Dict[str, Any]) -> None:
-    insert_capsule(db_path, capsule)
-
-
-def _get_capsule(db_path: str, run_id: str) -> Optional[Dict[str, Any]]:
-    return get_capsule(db_path, run_id)
-
-
-def _default_runner_executor(
+def _execute_direct(
+    executor: Any,
     settings: Settings,
-    dataset: Dict[str, Any],
-    sql: str,
-    timeout_seconds: int,
-    max_rows: int,
-    query_type: str = "sql",
-    python_code: Optional[str] = None,
-    max_output_bytes: int = 65536,
-) -> Dict[str, Any]:
-    files = []
-    for entry in dataset.get("files", []):
-        files.append(
-            {
-                "name": entry["name"],
-                "path": f"/data/{entry['path']}",
-            }
-        )
-
-    payload = {
-        "dataset_id": dataset["id"],
-        "files": files,
-        "query_type": query_type,
-        "timeout_seconds": timeout_seconds,
-        "max_rows": max_rows,
-        "max_output_bytes": max_output_bytes,
-    }
-    if query_type == "python":
-        payload["python_code"] = python_code or ""
-    else:
-        payload["sql"] = sql
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "-i",
-        "--network",
-        "none",
-        "--read-only",
-        "--pids-limit",
-        "64",
-        "--memory",
-        "512m",
-        "--cpus",
-        "0.5",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=64m",
-        "-v",
-        f"{Path(settings.datasets_dir).resolve()}:/data:ro",
-    ]
-    if query_type == "python":
-        cmd.extend(["--entrypoint", "python3"])
-    cmd.append(settings.runner_image)
-    if query_type == "python":
-        cmd.append("/app/runner_python.py")
-
-    proc = subprocess.run(
-        cmd,
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout_seconds + 5,
-    )
-
-    if not proc.stdout.strip():
-        return {
-            "status": "error",
-            "columns": [],
-            "rows": [],
-            "row_count": 0,
-            "exec_time_ms": 0,
-            "stdout_trunc": "",
-            "stderr_trunc": proc.stderr.strip()[:4096],
-            "error": {
-                "type": "RUNNER_INTERNAL_ERROR",
-                "message": "Runner returned empty stdout.",
-            },
-        }
-
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return {
-            "status": "error",
-            "columns": [],
-            "rows": [],
-            "row_count": 0,
-            "exec_time_ms": 0,
-            "stdout_trunc": proc.stdout[:4096],
-            "stderr_trunc": proc.stderr[:4096],
-            "error": {
-                "type": "RUNNER_INTERNAL_ERROR",
-                "message": "Runner returned invalid JSON.",
-            },
-        }
-
-
-def _build_runner_payload(
-    dataset: Dict[str, Any],
-    sql: str,
-    timeout_seconds: int,
-    max_rows: int,
+    message_store: Any,
+    capsule_db_path: str,
+    request: ChatRequest,
     query_type: str,
-    python_code: Optional[str],
-    max_output_bytes: int,
+    sql: str = "",
+    python_code: str = "",
 ) -> Dict[str, Any]:
-    files = []
-    for entry in dataset.get("files", []):
-        files.append(
-            {
-                "name": entry["name"],
-                "path": f"/data/{entry['path']}",
-            }
-        )
+    """Fast-path execution for explicit SQL:/PYTHON: messages — no LLM involved."""
+    registry = load_registry(settings.datasets_dir)
+    dataset = get_dataset_by_id(registry, request.dataset_id)
+    run_id = str(uuid.uuid4())
+    thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
 
-    payload: Dict[str, Any] = {
-        "dataset_id": dataset["id"],
-        "files": files,
-        "query_type": query_type,
-        "timeout_seconds": timeout_seconds,
-        "max_rows": max_rows,
-        "max_output_bytes": max_output_bytes,
+    # Persist user message
+    message_store.append_message(
+        thread_id=thread_id,
+        role="user",
+        content=request.message,
+        dataset_id=request.dataset_id,
+        run_id=run_id,
+    )
+
+    compiled_sql: Optional[str] = None
+    plan_json: Optional[Dict[str, Any]] = None
+    status: str = "succeeded"
+    result_payload: Dict[str, Any] = {
+        "columns": [],
+        "rows": [],
+        "row_count": 0,
+        "exec_time_ms": 0,
+        "error": None,
     }
-    if query_type == "python":
-        payload["python_code"] = python_code or ""
-    else:
-        payload["sql"] = sql
-    return payload
+    assistant_message = "Executed query."
 
-
-def _fallback_plan(
-    dataset_id: str, dataset: Dict[str, Any], max_rows: int
-) -> QueryPlan:
-    first_file = dataset["files"][0]
-    table = Path(first_file["name"]).stem
-    return QueryPlan(
-        dataset_id=dataset_id,
-        table=table,
-        select=[SelectColumn(column=list(first_file["schema"].keys())[0])],
-        limit=max_rows,
-    )
-
-
-def _generate_with_langchain(
-    settings: Settings,
-    dataset: Dict[str, Any],
-    message: str,
-    max_rows: int,
-    history: Optional[list[dict[str, Any]]] = None,
-) -> Optional[Any]:
-    try:
-        from langchain_core.prompts import ChatPromptTemplate
-    except Exception:
-        return None
-
-    schema_summary = {
-        "dataset_id": dataset["id"],
-        "description": dataset.get("description"),
-        "files": [
-            {
-                "name": f["name"],
-                "schema": list(f.get("schema", {}).keys()),
+    if query_type == "sql":
+        # Normalize + policy check
+        sql = normalize_sql_for_dataset(sql, request.dataset_id)
+        compiled_sql = sql
+        policy_error = validate_sql_policy(sql)
+        if policy_error:
+            status = "rejected"
+            assistant_message = "Query rejected by SQL policy."
+            result_payload = {
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "exec_time_ms": 0,
+                "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
             }
-            for f in dataset.get("files", [])
-        ],
-    }
-    history_text = _format_history_text(history)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "You are a careful data analyst. Choose query_mode='chat' when the user asks for "
-                    "greetings, capabilities, clarification, or schema/metadata that can be answered "
-                    "without running a query. Otherwise default to query_mode='plan' with a valid QueryPlan. "
-                    "Only use query_mode='sql' when the user explicitly asks for SQL. "
-                    "Always keep LIMIT <= {max_rows}."
-                ),
-            ),
-            (
-                "human",
-                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
-            ),
-        ]
-    )
-
-    model = None
-    provider = settings.llm_provider
-
-    if provider in ("auto", "openai") and settings.openai_api_key:
-        try:
-            from langchain_openai import ChatOpenAI
-        except Exception:
-            if provider == "openai":
-                return None
         else:
-            model = ChatOpenAI(
-                model=settings.openai_model,
-                temperature=0,
-                api_key=settings.openai_api_key,
-            ).with_structured_output(AgentDraft)
-
-    if (
-        model is None
-        and provider in ("auto", "anthropic")
-        and settings.anthropic_api_key
-    ):
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except Exception:
-            if provider == "anthropic":
-                return None
-        else:
-            model = ChatAnthropic(
-                model=settings.anthropic_model,
-                temperature=0,
-                api_key=settings.anthropic_api_key,
-            ).with_structured_output(AgentDraft)
-
-    if model is None:
-        return None
-
-    chain = prompt | model
-    return chain.invoke(
-        {
-            "schema": json.dumps(schema_summary),
-            "history": history_text,
-            "message": message,
-            "max_rows": max_rows,
-        }
-    )
-
-
-def _coerce_agent_draft(raw: Any) -> Optional[AgentDraft]:
-    """Normalize provider output into AgentDraft across LangChain version differences."""
-    if raw is None:
-        return None
-
-    if isinstance(raw, AgentDraft):
-        return raw
-
-    candidate: Any = raw
-    if isinstance(raw, dict):
-        if isinstance(raw.get("parsed"), AgentDraft):
-            return raw["parsed"]
-        if isinstance(raw.get("parsed"), dict):
-            candidate = raw["parsed"]
-        elif isinstance(raw.get("output"), dict):
-            candidate = raw["output"]
-
-    if isinstance(candidate, dict):
-        try:
-            return AgentDraft.model_validate(candidate)
-        except ValidationError:
-            return None
-
-    if hasattr(candidate, "model_dump"):
-        try:
-            return AgentDraft.model_validate(candidate.model_dump())
-        except ValidationError:
-            return None
-
-    return None
-
-
-def _coerce_sql_rescue_draft(raw: Any) -> Optional[SqlRescueDraft]:
-    if raw is None:
-        return None
-    if isinstance(raw, SqlRescueDraft):
-        return raw
-
-    candidate: Any = raw
-    if isinstance(raw, dict):
-        if isinstance(raw.get("parsed"), SqlRescueDraft):
-            return raw["parsed"]
-        if isinstance(raw.get("parsed"), dict):
-            candidate = raw["parsed"]
-        elif isinstance(raw.get("output"), dict):
-            candidate = raw["output"]
-
-    if isinstance(candidate, dict):
-        try:
-            return SqlRescueDraft.model_validate(candidate)
-        except ValidationError:
-            return None
-
-    if hasattr(candidate, "content") and isinstance(candidate.content, str):
-        text = candidate.content.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        try:
-            data = json.loads(text)
-            return SqlRescueDraft.model_validate(data)
-        except (json.JSONDecodeError, ValidationError):
-            return None
-
-    if hasattr(candidate, "model_dump"):
-        try:
-            return SqlRescueDraft.model_validate(candidate.model_dump())
-        except ValidationError:
-            return None
-
-    return None
-
-
-def _coerce_python_draft(raw: Any) -> Optional[PythonDraft]:
-    if raw is None:
-        return None
-    if isinstance(raw, PythonDraft):
-        return raw
-
-    candidate: Any = raw
-    if isinstance(raw, dict):
-        if isinstance(raw.get("parsed"), PythonDraft):
-            return raw["parsed"]
-        if isinstance(raw.get("parsed"), dict):
-            candidate = raw["parsed"]
-        elif isinstance(raw.get("output"), dict):
-            candidate = raw["output"]
-
-    if isinstance(candidate, dict):
-        try:
-            return PythonDraft.model_validate(candidate)
-        except ValidationError:
-            return None
-
-    if hasattr(candidate, "content") and isinstance(candidate.content, str):
-        text = candidate.content.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        try:
-            data = json.loads(text)
-            return PythonDraft.model_validate(data)
-        except (json.JSONDecodeError, ValidationError):
-            return None
-
-    if hasattr(candidate, "model_dump"):
-        try:
-            return PythonDraft.model_validate(candidate.model_dump())
-        except ValidationError:
-            return None
-
-    return None
-
-
-def _generate_python_with_langchain(
-    settings: Settings,
-    dataset: Dict[str, Any],
-    message: str,
-    max_rows: int,
-    history: Optional[list[dict[str, Any]]] = None,
-) -> Optional[PythonDraft]:
-    try:
-        from langchain_core.prompts import ChatPromptTemplate
-    except Exception:
-        return None
-
-    schema_summary = {
-        "dataset_id": dataset["id"],
-        "description": dataset.get("description"),
-        "files": [
-            {
-                "name": f["name"],
-                "schema": list(f.get("schema", {}).keys()),
+            # Build payload and submit
+            files = [
+                {"name": e["name"], "path": f"/data/{e['path']}"}
+                for e in dataset.get("files", [])
+            ]
+            payload = {
+                "dataset_id": dataset["id"],
+                "files": files,
+                "query_type": "sql",
+                "timeout_seconds": settings.run_timeout_seconds,
+                "max_rows": settings.max_rows,
+                "max_output_bytes": settings.max_output_bytes,
+                "sql": sql,
             }
-            for f in dataset.get("files", [])
-        ],
-    }
-    history_text = _format_history_text(history)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "Produce executable pandas code only in structured output. "
-                    "Use provided table DataFrames by name (e.g. tickets, orders). "
-                    "Set result_df or result. Keep output to <= {max_rows} rows."
-                ),
-            ),
-            (
-                "human",
-                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
-            ),
-        ]
-    )
-
-    model = None
-    provider = settings.llm_provider
-
-    if provider in ("auto", "openai") and settings.openai_api_key:
-        try:
-            from langchain_openai import ChatOpenAI
-        except Exception:
-            if provider == "openai":
-                return None
-        else:
-            model = ChatOpenAI(
-                model=settings.openai_model,
-                temperature=0,
-                api_key=settings.openai_api_key,
-            ).with_structured_output(PythonDraft)
-
-    if (
-        model is None
-        and provider in ("auto", "anthropic")
-        and settings.anthropic_api_key
-    ):
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except Exception:
-            if provider == "anthropic":
-                return None
-        else:
-            model = ChatAnthropic(
-                model=settings.anthropic_model,
-                temperature=0,
-                api_key=settings.anthropic_api_key,
-            ).with_structured_output(PythonDraft)
-
-    if model is None:
-        return None
-
-    chain = prompt | model
-    raw = chain.invoke(
-        {
-            "schema": json.dumps(schema_summary),
-            "history": history_text,
-            "message": message,
-            "max_rows": max_rows,
-        }
-    )
-    return _coerce_python_draft(raw)
-
-
-def _heuristic_python_from_message(
-    message: str,
-    dataset: Dict[str, Any],
-    max_rows: int,
-) -> Optional[str]:
-    """Fallback python generator for simple 'group by X' requests."""
-    lowered = message.lower()
-    match = re.search(r"group(?:\s+\w+)*\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)", lowered)
-    if not match:
-        return None
-    target_col = match.group(1).strip().rstrip("?.!,")
-
-    for file in dataset.get("files", []):
-        table = Path(file["name"]).stem
-        schema_cols = {c.lower(): c for c in file.get("schema", {}).keys()}
-        if target_col in schema_cols:
-            col = schema_cols[target_col]
-            return (
-                f'result_df = {table}.groupby("{col}").size().reset_index(name="count")'
-                '.sort_values("count", ascending=False).head('
-                f"{max_rows})"
+            raw = executor.submit_run(payload, query_type="sql")
+            runner_result = raw.get("result", raw)
+            status = _map_runner_status(runner_result)
+            result_payload = {
+                "columns": runner_result.get("columns", []),
+                "rows": runner_result.get("rows", []),
+                "row_count": runner_result.get("row_count", 0),
+                "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                "error": runner_result.get("error"),
+            }
+            assistant_message = _summarize_result(
+                request.message, "sql", result_payload
             )
-    return None
 
-
-def _generate_sql_rescue_with_langchain(
-    settings: Settings,
-    dataset: Dict[str, Any],
-    message: str,
-    max_rows: int,
-    history: Optional[list[dict[str, Any]]] = None,
-) -> Optional[SqlRescueDraft]:
-    """Fallback LLM path: ask for SQL-only structured payload."""
-    try:
-        from langchain_core.prompts import ChatPromptTemplate
-    except Exception:
-        return None
-
-    schema_summary = {
-        "dataset_id": dataset["id"],
-        "description": dataset.get("description"),
-        "files": [
-            {
-                "name": f["name"],
-                "schema": list(f.get("schema", {}).keys()),
+    elif query_type == "python":
+        if not settings.enable_python_execution:
+            status = "rejected"
+            assistant_message = "Query rejected: Python execution is disabled."
+            result_payload = {
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "exec_time_ms": 0,
+                "error": {
+                    "type": "FEATURE_DISABLED",
+                    "message": "Python execution mode is disabled.",
+                },
             }
-            for f in dataset.get("files", [])
-        ],
-    }
-    history_text = _format_history_text(history)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "Return only executable SQL for DuckDB in a structured response. "
-                    "Use only tables from schema; enforce LIMIT <= {max_rows}. "
-                    "Return one SELECT/WITH query."
-                ),
-            ),
-            (
-                "human",
-                "Dataset schema: {schema}\n\nConversation history:\n{history}\n\nUser message: {message}",
-            ),
-        ]
-    )
-
-    model = None
-    provider = settings.llm_provider
-
-    if provider in ("auto", "openai") and settings.openai_api_key:
-        try:
-            from langchain_openai import ChatOpenAI
-        except Exception:
-            if provider == "openai":
-                return None
         else:
-            model = ChatOpenAI(
-                model=settings.openai_model,
-                temperature=0,
-                api_key=settings.openai_api_key,
-            ).with_structured_output(SqlRescueDraft)
+            files = [
+                {"name": e["name"], "path": f"/data/{e['path']}"}
+                for e in dataset.get("files", [])
+            ]
+            payload = {
+                "dataset_id": dataset["id"],
+                "files": files,
+                "query_type": "python",
+                "timeout_seconds": settings.run_timeout_seconds,
+                "max_rows": settings.max_rows,
+                "max_output_bytes": settings.max_output_bytes,
+                "python_code": python_code,
+            }
+            raw = executor.submit_run(payload, query_type="python")
+            runner_result = raw.get("result", raw)
+            status = _map_runner_status(runner_result)
+            result_payload = {
+                "columns": runner_result.get("columns", []),
+                "rows": runner_result.get("rows", []),
+                "row_count": runner_result.get("row_count", 0),
+                "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                "error": runner_result.get("error"),
+            }
+            assistant_message = _summarize_result(
+                request.message, "python", result_payload
+            )
 
-    if (
-        model is None
-        and provider in ("auto", "anthropic")
-        and settings.anthropic_api_key
-    ):
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except Exception:
-            if provider == "anthropic":
-                return None
-        else:
-            model = ChatAnthropic(
-                model=settings.anthropic_model,
-                temperature=0,
-                api_key=settings.anthropic_api_key,
-            ).with_structured_output(SqlRescueDraft)
-
-    if model is None:
-        return None
-
-    chain = prompt | model
-    raw = chain.invoke(
+    # Persist capsule
+    insert_capsule(
+        capsule_db_path,
         {
-            "schema": json.dumps(schema_summary),
-            "history": history_text,
-            "message": message,
-            "max_rows": max_rows,
-        }
+            "run_id": run_id,
+            "created_at": _utc_now_iso(),
+            "dataset_id": request.dataset_id,
+            "dataset_version_hash": dataset.get("version_hash"),
+            "question": request.message,
+            "query_mode": query_type,
+            "plan_json": plan_json,
+            "compiled_sql": compiled_sql,
+            "python_code": python_code if query_type == "python" else None,
+            "status": status,
+            "result_json": result_payload,
+            "error_json": result_payload.get("error"),
+            "exec_time_ms": result_payload.get("exec_time_ms", 0),
+        },
     )
-    return _coerce_sql_rescue_draft(raw)
+
+    # Persist assistant message
+    message_store.append_message(
+        thread_id=thread_id,
+        role="assistant",
+        content=assistant_message,
+        dataset_id=request.dataset_id,
+        run_id=run_id,
+    )
+
+    return {
+        "assistant_message": assistant_message,
+        "run_id": run_id,
+        "thread_id": thread_id,
+        "status": status,
+        "result": result_payload,
+        "details": {
+            "dataset_id": request.dataset_id,
+            "query_mode": query_type,
+            "plan_json": plan_json,
+            "compiled_sql": compiled_sql,
+            "python_code": python_code if query_type == "python" else None,
+        },
+    }
 
 
-def _format_history_text(history: Optional[list[dict[str, Any]]]) -> str:
-    if not history:
-        return "(no previous messages)"
-    lines: list[str] = []
-    for item in history:
-        role = item.get("role", "unknown")
-        content = str(item.get("content", "")).strip()
-        if not content:
-            continue
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines) if lines else "(no previous messages)"
-
-
-def _humanize_label(name: str) -> str:
-    return name.replace("_", " ").strip()
-
-
-def _summarize_result_for_user(
-    *,
-    question: str,
-    query_mode: str,
-    result: Dict[str, Any],
-) -> str:
-    if result.get("status") != "success":
-        err = result.get("error", {}) or {}
-        msg = err.get("message") or "Execution failed."
+def _summarize_result(question: str, query_mode: str, result: Dict[str, Any]) -> str:
+    """Produce a human-readable summary of a query result."""
+    if result.get("error"):
+        msg = result["error"].get("message", "Execution failed.")
         return f"I couldn't execute that request successfully: {msg}"
 
     columns = result.get("columns", []) or []
@@ -820,16 +318,16 @@ def _summarize_result_for_user(
         value = rows[0][0]
         col_lower = col.lower()
         if col_lower.startswith("total_"):
-            subject = _humanize_label(col_lower[6:])
+            subject = col_lower[6:].replace("_", " ").strip()
             return f"There are {value} total {subject} in the dataset."
         if col_lower in {"count", "n", "total", "total_count", "row_count"}:
             return f"The result is {value}."
-        return f"{_humanize_label(col)}: {value}."
+        return f"{col.replace('_', ' ').strip()}: {value}."
 
     if len(rows) <= 5 and len(columns) <= 4:
         first = rows[0]
         pairs = ", ".join(
-            f"{_humanize_label(str(col))}={first[i]}"
+            f"{str(col).replace('_', ' ').strip()}={first[i]}"
             for i, col in enumerate(columns)
             if i < len(first)
         )
@@ -844,24 +342,34 @@ def _summarize_result_for_user(
     )
 
 
-@dataclass
-class AppServices:
-    settings: Settings
-    runner_executor: Callable[..., Dict[str, Any]]
-    compiler: QueryPlanCompiler
-    message_store: MessageStore
+def _map_runner_status(
+    runner_result: Dict[str, Any],
+) -> Literal["succeeded", "failed", "timed_out"]:
+    status = runner_result.get("status")
+    error_type = (runner_result.get("error") or {}).get("type")
+    if status == "timeout" or error_type == "TIMEOUT":
+        return "timed_out"
+    if status == "success":
+        return "succeeded"
+    return "failed"
 
 
-def _normalize_runner_to_status(
-    result: Dict[str, Any]
-) -> Literal["succeeded", "failed"]:
-    return "succeeded" if result.get("status") == "success" else "failed"
+# ── App Factory ───────────────────────────────────────────────────────────
 
 
 def create_app(
     settings: Optional[Settings] = None,
-    runner_executor: Optional[Callable[..., Dict[str, Any]]] = None,
+    llm: Optional[Any] = None,
+    executor: Optional[Any] = None,
 ) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    Args:
+        settings: Override Settings (constructed from env if None).
+        llm:      Injected LLM — skips create_llm() when provided (used by tests).
+        executor: Injected Executor — skips factory when provided (used by tests).
+    """
+    # ── env + settings ──────────────────────────────────────────────────
     if load_dotenv:
         repo_root = Path(__file__).resolve().parents[2]
         load_dotenv(repo_root / ".env", override=False)
@@ -895,65 +403,64 @@ def create_app(
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO)
     )
-    _init_capsule_db(settings.capsule_db_path)
+
+    # ── storage ─────────────────────────────────────────────────────────
+    init_capsule_db(settings.capsule_db_path)
     message_store = create_message_store(
         settings.storage_provider, settings.capsule_db_path
     )
     message_store.initialize()
 
-    default_runner_callable: Callable[..., Dict[str, Any]]
-    if settings.sandbox_provider == "docker":
-        default_runner_callable = _default_runner_executor
-    else:
-        sandbox_executor = create_sandbox_executor(
-            provider=settings.sandbox_provider,
-            runner_image=settings.runner_image,
-            datasets_dir=settings.datasets_dir,
-            timeout_seconds=settings.run_timeout_seconds,
-            max_rows=settings.max_rows,
-            max_output_bytes=settings.max_output_bytes,
-            msb_server_url=settings.msb_server_url,
-            msb_api_key=settings.msb_api_key,
-            msb_namespace=settings.msb_namespace,
-            msb_memory_mb=settings.msb_memory_mb,
-            msb_cpus=settings.msb_cpus,
-        )
-
-        def _provider_runner_executor(
-            _settings: Settings,
-            dataset: Dict[str, Any],
-            sql: str,
-            timeout_seconds: int,
-            max_rows: int,
-            query_type: str = "sql",
-            python_code: Optional[str] = None,
-            max_output_bytes: int = 65536,
-        ) -> Dict[str, Any]:
-            payload = _build_runner_payload(
-                dataset=dataset,
-                sql=sql,
-                timeout_seconds=timeout_seconds,
-                max_rows=max_rows,
-                query_type=query_type,
-                python_code=python_code,
-                max_output_bytes=max_output_bytes,
-            )
-            out = sandbox_executor.submit_run(payload, query_type=query_type)
-            return out.get("result", {})
-
-        default_runner_callable = _provider_runner_executor
-
-    app = FastAPI(title="CSV Analyst Agent Server")
-    app.state.services = AppServices(
-        settings=settings,
-        runner_executor=runner_executor or default_runner_callable,
-        compiler=QueryPlanCompiler(),
-        message_store=message_store,
+    # ── executor (sandbox backend) ──────────────────────────────────────
+    # ALL providers go through the factory now — docker is no longer special-cased.
+    sandbox_executor = executor or create_sandbox_executor(
+        provider=settings.sandbox_provider,
+        runner_image=settings.runner_image,
+        datasets_dir=settings.datasets_dir,
+        timeout_seconds=settings.run_timeout_seconds,
+        max_rows=settings.max_rows,
+        max_output_bytes=settings.max_output_bytes,
+        msb_server_url=settings.msb_server_url,
+        msb_api_key=settings.msb_api_key,
+        msb_namespace=settings.msb_namespace,
+        msb_memory_mb=settings.msb_memory_mb,
+        msb_cpus=settings.msb_cpus,
     )
 
-    # Tool-style helpers used by chat flow and /runs endpoint.
-    def tool_list_datasets() -> Dict[str, Any]:
-        registry = _load_registry(app.state.services.settings)
+    # ── tools + LLM + agent ─────────────────────────────────────────────
+    compiler = QueryPlanCompiler()
+    tools = create_tools(
+        executor=sandbox_executor,
+        compiler=compiler,
+        datasets_dir=settings.datasets_dir,
+        max_rows=settings.max_rows,
+        max_output_bytes=settings.max_output_bytes,
+        timeout_seconds=settings.run_timeout_seconds,
+        enable_python_execution=settings.enable_python_execution,
+    )
+
+    resolved_llm = llm or create_llm(settings)
+    agent_graph = build_agent(tools, settings.max_rows, resolved_llm)
+
+    session = AgentSession(
+        agent_graph,
+        message_store,
+        settings.capsule_db_path,
+        history_window=settings.thread_history_window,
+    )
+
+    # ── FastAPI app ─────────────────────────────────────────────────────
+    app = FastAPI(title="CSV Analyst Agent Server")
+
+    # ── routes ──────────────────────────────────────────────────────────
+
+    @app.get("/healthz")
+    async def healthz():
+        return {"status": "ok"}
+
+    @app.get("/datasets")
+    async def list_datasets():
+        registry = load_registry(settings.datasets_dir)
         return {
             "datasets": [
                 {
@@ -967,604 +474,294 @@ def create_app(
             ]
         }
 
-    def tool_get_dataset_schema(dataset_id: str) -> Dict[str, Any]:
-        registry = _load_registry(app.state.services.settings)
-        ds = _dataset_by_id(registry, dataset_id)
+    @app.get("/datasets/{dataset_id}/schema")
+    async def dataset_schema(dataset_id: str):
+        registry = load_registry(settings.datasets_dir)
+        try:
+            ds = get_dataset_by_id(registry, dataset_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Dataset not found")
         files = []
         for f in ds.get("files", []):
-            rel_path = f["path"]
-            abs_path = Path(app.state.services.settings.datasets_dir) / rel_path
+            abs_path = Path(settings.datasets_dir) / f["path"]
             files.append(
                 {
                     "name": f["name"],
-                    "path": rel_path,
+                    "path": f["path"],
                     "schema": f.get("schema", {}),
                     "sample_rows": _sample_rows(abs_path, max_rows=3),
                 }
             )
         return {"id": ds["id"], "name": ds["name"], "files": files}
 
-    def tool_execute_sql(dataset: Dict[str, Any], sql: str) -> Dict[str, Any]:
-        sql = _normalize_sql_for_dataset(sql, dataset["id"])
-        policy_error = _validate_sql_policy(sql)
-        if policy_error:
-            return {
-                "status": "rejected",
-                "result": {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": 0,
-                    "exec_time_ms": 0,
-                    "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
-                },
-                "compiled_sql": sql,
-            }
-
-        runner_result = app.state.services.runner_executor(
-            app.state.services.settings,
-            dataset,
-            sql,
-            app.state.services.settings.run_timeout_seconds,
-            app.state.services.settings.max_rows,
-            query_type="sql",
-            python_code=None,
-            max_output_bytes=app.state.services.settings.max_output_bytes,
-        )
-        return {
-            "status": _normalize_runner_to_status(runner_result),
-            "result": runner_result,
-            "compiled_sql": sql,
-        }
-
-    def tool_execute_query_plan(
-        dataset: Dict[str, Any], plan_json: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        plan = QueryPlan.model_validate(plan_json)
-        compiled_sql = app.state.services.compiler.compile(plan)
-        outcome = tool_execute_sql(dataset, compiled_sql)
-        outcome["plan_json"] = plan.model_dump()
-        return outcome
-
-    def tool_execute_python(
-        dataset: Dict[str, Any], python_code: str
-    ) -> Dict[str, Any]:
-        if not app.state.services.settings.enable_python_execution:
-            return {
-                "status": "rejected",
-                "result": {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": 0,
-                    "exec_time_ms": 0,
-                    "error": {
-                        "type": "FEATURE_DISABLED",
-                        "message": "Python execution mode is disabled.",
-                    },
-                },
-            }
-        runner_result = app.state.services.runner_executor(
-            app.state.services.settings,
-            dataset,
-            "",
-            app.state.services.settings.run_timeout_seconds,
-            app.state.services.settings.max_rows,
-            query_type="python",
-            python_code=python_code,
-            max_output_bytes=app.state.services.settings.max_output_bytes,
-        )
-        return {
-            "status": _normalize_runner_to_status(runner_result),
-            "result": runner_result,
-        }
-
-    def tool_get_run_status(run_id: str) -> Dict[str, Any]:
-        capsule = _get_capsule(app.state.services.settings.capsule_db_path, run_id)
-        if not capsule:
-            return {"run_id": run_id, "status": "not_found"}
-        return {"run_id": run_id, "status": capsule.get("status")}
-
-    def process_chat(
-        request: ChatRequest,
-        status_cb: Optional[Callable[[str], None]] = None,
-    ) -> ChatResponse:
-        services: AppServices = app.state.services
-        registry = _load_registry(services.settings)
-        dataset = _dataset_by_id(registry, request.dataset_id)
-        run_id = str(uuid.uuid4())
+    @app.post("/chat", response_model=ChatResponse)
+    async def chat(request: ChatRequest):
+        msg = request.message.strip()
+        # Fast paths: explicit SQL: or PYTHON: prefix
+        if msg.lower().startswith("sql:"):
+            sql = msg.split(":", 1)[1].strip()
+            return _execute_direct(
+                sandbox_executor,
+                settings,
+                message_store,
+                settings.capsule_db_path,
+                request,
+                "sql",
+                sql=sql,
+            )
+        if msg.lower().startswith("python:"):
+            code = msg.split(":", 1)[1].strip()
+            return _execute_direct(
+                sandbox_executor,
+                settings,
+                message_store,
+                settings.capsule_db_path,
+                request,
+                "python",
+                python_code=code,
+            )
+        # Agent path
         thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
-        status_cb = status_cb or (lambda *_: None)
-        _log_event(
-            "chat.request",
-            run_id=run_id,
-            thread_id=thread_id,
-            dataset_id=request.dataset_id,
-            sandbox_provider=services.settings.sandbox_provider,
-            message=request.message,
-        )
-
-        history = services.message_store.get_messages(
-            thread_id=thread_id,
-            limit=max(1, services.settings.thread_history_window),
-        )
-        services.message_store.append_message(
-            thread_id=thread_id,
-            role="user",
-            content=request.message,
-            dataset_id=request.dataset_id,
-            run_id=run_id,
-        )
-
-        def persist_capsule(
-            *,
-            response: ChatResponse,
-            query_mode: str,
-            plan_json: Optional[Dict[str, Any]],
-            compiled_sql: Optional[str],
-            python_code: Optional[str],
-        ) -> None:
-            _insert_capsule(
-                services.settings.capsule_db_path,
-                {
-                    "run_id": run_id,
-                    "created_at": _utc_now_iso(),
-                    "dataset_id": request.dataset_id,
-                    "dataset_version_hash": dataset.get("version_hash"),
-                    "question": request.message,
-                    "query_mode": query_mode,
-                    "plan_json": plan_json,
-                    "compiled_sql": compiled_sql,
-                    "python_code": python_code,
-                    "status": response.status,
-                    "result_json": response.result,
-                    "error_json": response.result.get("error"),
-                    "exec_time_ms": response.result.get("exec_time_ms", 0),
-                },
-            )
-
-        def persist_assistant(content: str) -> None:
-            services.message_store.append_message(
-                thread_id=thread_id,
-                role="assistant",
-                content=content,
-                dataset_id=request.dataset_id,
-                run_id=run_id,
-            )
-
-        status_cb("planning")
-        explicit_sql = request.message.strip().lower().startswith("sql:")
-        explicit_python = request.message.strip().lower().startswith("python:")
-        implicit_python = _is_python_intent(request.message) and not explicit_sql
-
-        query_mode: Literal["sql", "plan", "python", "chat"] = (
-            "sql" if explicit_sql else "plan"
-        )
-        assistant_message = "Executed query."
-        plan_json = None
-        compiled_sql = None
-        python_code = None
-
-        if explicit_python or implicit_python:
-            if not services.settings.enable_python_execution:
-                result = {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": 0,
-                    "exec_time_ms": 0,
-                    "error": {
-                        "type": "FEATURE_DISABLED",
-                        "message": "Python execution mode is disabled.",
-                    },
-                }
-                response = ChatResponse(
-                    assistant_message="Query rejected: Python execution is disabled.",
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    status="rejected",
-                    result=result,
-                    details={
-                        "dataset_id": request.dataset_id,
-                        "query_mode": "python",
-                        "plan_json": None,
-                        "compiled_sql": None,
-                        "python_code": None,
-                    },
-                )
-                persist_capsule(
-                    response=response,
-                    query_mode="python",
-                    plan_json=None,
-                    compiled_sql=None,
-                    python_code=None,
-                )
-                persist_assistant(response.assistant_message)
-                _log_event(
-                    "chat.rejected",
-                    run_id=run_id,
-                    reason="python_disabled",
-                    sandbox_provider=services.settings.sandbox_provider,
-                )
-                return response
-            query_mode = "python"
-            if explicit_python:
-                python_code = request.message.split(":", 1)[1].strip()
-                assistant_message = "Executed Python analysis."
-            else:
-                generated = _generate_python_with_langchain(
-                    settings=services.settings,
-                    dataset=dataset,
-                    message=request.message,
-                    max_rows=services.settings.max_rows,
-                    history=history,
-                )
-                if generated:
-                    python_code = generated.python_code
-                    assistant_message = generated.assistant_message
-                else:
-                    python_code = _heuristic_python_from_message(
-                        message=request.message,
-                        dataset=dataset,
-                        max_rows=services.settings.max_rows,
-                    )
-                    if python_code:
-                        assistant_message = (
-                            "Generated pandas code from request and executed it."
-                        )
-                    else:
-                        result = {
-                            "columns": [],
-                            "rows": [],
-                            "row_count": 0,
-                            "exec_time_ms": 0,
-                            "error": {
-                                "type": "VALIDATION_ERROR",
-                                "message": (
-                                    "Could not generate executable Python code. "
-                                    "Use explicit 'PYTHON: ...' format."
-                                ),
-                            },
-                        }
-                        response = ChatResponse(
-                            assistant_message=(
-                                "I couldn't generate safe Python for that request. "
-                                "Please provide explicit code with 'PYTHON: ...'."
-                            ),
-                            run_id=run_id,
-                            thread_id=thread_id,
-                            status="rejected",
-                            result=result,
-                            details={
-                                "dataset_id": request.dataset_id,
-                                "query_mode": "python",
-                                "plan_json": None,
-                                "compiled_sql": None,
-                                "python_code": None,
-                            },
-                        )
-                        persist_capsule(
-                            response=response,
-                            query_mode="python",
-                            plan_json=None,
-                            compiled_sql=None,
-                            python_code=None,
-                        )
-                        persist_assistant(response.assistant_message)
-                        _log_event(
-                            "chat.rejected",
-                            run_id=run_id,
-                            reason="python_generation_failed",
-                            sandbox_provider=services.settings.sandbox_provider,
-                        )
-                        return response
-            sql = ""
-        elif explicit_sql:
-            sql = request.message.split(":", 1)[1].strip()
-        else:
-            raw_draft = _generate_with_langchain(
-                settings=services.settings,
-                dataset=dataset,
-                message=request.message,
-                max_rows=services.settings.max_rows,
-                history=history,
-            )
-            draft = _coerce_agent_draft(raw_draft)
-            if draft:
-                query_mode = draft.query_mode
-                assistant_message = draft.assistant_message
-                if query_mode == "chat":
-                    response = ChatResponse(
-                        assistant_message=assistant_message,
-                        run_id=run_id,
-                        thread_id=thread_id,
-                        status="succeeded",
-                        result={
-                            "columns": [],
-                            "rows": [],
-                            "row_count": 0,
-                            "exec_time_ms": 0,
-                            "error": None,
-                        },
-                        details={
-                            "dataset_id": request.dataset_id,
-                            "query_mode": "chat",
-                            "plan_json": None,
-                            "compiled_sql": None,
-                            "python_code": None,
-                        },
-                    )
-                    persist_capsule(
-                        response=response,
-                        query_mode="chat",
-                        plan_json=None,
-                        compiled_sql=None,
-                        python_code=None,
-                    )
-                    persist_assistant(response.assistant_message)
-                    _log_event(
-                        "chat.completed",
-                        run_id=run_id,
-                        status=response.status,
-                        query_mode="chat",
-                        sandbox_provider=services.settings.sandbox_provider,
-                    )
-                    return response
-                if query_mode == "sql":
-                    sql = draft.sql or ""
-                else:
-                    try:
-                        plan = draft.plan or _fallback_plan(
-                            request.dataset_id, dataset, services.settings.max_rows
-                        )
-                    except ValidationError as exc:
-                        raise HTTPException(status_code=400, detail=str(exc)) from exc
-                    plan_json = plan.model_dump()
-                    compiled_sql = services.compiler.compile(plan)
-                    sql = compiled_sql
-            else:
-                if raw_draft is not None:
-                    LOGGER.warning(
-                        "LLM output could not be parsed as AgentDraft; trying SQL rescue."
-                    )
-
-                rescue = _generate_sql_rescue_with_langchain(
-                    settings=services.settings,
-                    dataset=dataset,
-                    message=request.message,
-                    max_rows=services.settings.max_rows,
-                    history=history,
-                )
-                if rescue:
-                    query_mode = "sql"
-                    assistant_message = rescue.assistant_message
-                    sql = rescue.sql
-                else:
-                    response = ChatResponse(
-                        assistant_message=(
-                            "LLM service unavailable or returned an invalid response. "
-                            "Please try again, or use explicit `SQL:` / `PYTHON:`."
-                        ),
-                        run_id=run_id,
-                        thread_id=thread_id,
-                        status="rejected",
-                        result={
-                            "columns": [],
-                            "rows": [],
-                            "row_count": 0,
-                            "exec_time_ms": 0,
-                            "error": {
-                                "type": "LLM_UNAVAILABLE",
-                                "message": "LLM service unavailable or returned invalid response.",
-                            },
-                        },
-                        details={
-                            "dataset_id": request.dataset_id,
-                            "query_mode": "chat",
-                            "plan_json": None,
-                            "compiled_sql": None,
-                            "python_code": None,
-                        },
-                    )
-                    persist_capsule(
-                        response=response,
-                        query_mode="chat",
-                        plan_json=None,
-                        compiled_sql=None,
-                        python_code=None,
-                    )
-                    persist_assistant(response.assistant_message)
-                    _log_event(
-                        "chat.rejected",
-                        run_id=run_id,
-                        reason="llm_unavailable_or_invalid",
-                        sandbox_provider=services.settings.sandbox_provider,
-                    )
-                    return response
-
-        if query_mode not in {"python", "chat"}:
-            sql = _normalize_sql_for_dataset(sql, request.dataset_id)
-
-            status_cb("validating")
-            sql_policy_error = _validate_sql_policy(sql)
-            if sql_policy_error:
-                result = {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": 0,
-                    "exec_time_ms": 0,
-                    "error": {
-                        "type": "SQL_POLICY_VIOLATION",
-                        "message": sql_policy_error,
-                    },
-                }
-                response = ChatResponse(
-                    assistant_message="Query rejected by SQL policy.",
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    status="rejected",
-                    result=result,
-                    details={
-                        "dataset_id": request.dataset_id,
-                        "query_mode": query_mode,
-                        "plan_json": plan_json,
-                        "compiled_sql": compiled_sql or sql,
-                        "python_code": python_code,
-                    },
-                )
-                persist_capsule(
-                    response=response,
-                    query_mode=query_mode,
-                    plan_json=plan_json,
-                    compiled_sql=compiled_sql or sql,
-                    python_code=python_code,
-                )
-                persist_assistant(response.assistant_message)
-                _log_event(
-                    "chat.rejected",
-                    run_id=run_id,
-                    reason="sql_policy",
-                    sandbox_provider=services.settings.sandbox_provider,
-                )
-                return response
-        else:
-            status_cb("validating")
-
-        status_cb("executing")
-        runner_result = services.runner_executor(
-            services.settings,
-            dataset,
-            sql,
-            services.settings.run_timeout_seconds,
-            services.settings.max_rows,
-            query_type=query_mode,
-            python_code=python_code,
-            max_output_bytes=services.settings.max_output_bytes,
-        )
-
-        response_status = _normalize_runner_to_status(runner_result)
-        final_message = _summarize_result_for_user(
-            question=request.message,
-            query_mode=query_mode,
-            result=runner_result,
-        )
-        response = ChatResponse(
-            assistant_message=final_message,
-            run_id=run_id,
-            thread_id=thread_id,
-            status=response_status,
-            result={
-                "columns": runner_result.get("columns", []),
-                "rows": runner_result.get("rows", []),
-                "row_count": runner_result.get("row_count", 0),
-                "exec_time_ms": runner_result.get("exec_time_ms", 0),
-                "error": runner_result.get("error"),
-            },
-            details={
-                "dataset_id": request.dataset_id,
-                "query_mode": query_mode,
-                "plan_json": plan_json,
-                "compiled_sql": compiled_sql or sql if query_mode != "python" else None,
-                "python_code": python_code,
-            },
-        )
-
-        persist_capsule(
-            response=response,
-            query_mode=query_mode,
-            plan_json=plan_json,
-            compiled_sql=compiled_sql or sql if query_mode != "python" else None,
-            python_code=python_code,
-        )
-        persist_assistant(response.assistant_message)
-        _log_event(
-            "chat.completed",
-            run_id=run_id,
-            status=response.status,
-            query_mode=query_mode,
-            sandbox_provider=services.settings.sandbox_provider,
-        )
-        return response
-
-    @app.get("/healthz")
-    async def healthz():
-        return {"status": "ok"}
-
-    @app.get("/datasets")
-    async def list_datasets():
-        return tool_list_datasets()
-
-    @app.get("/datasets/{dataset_id}/schema")
-    async def dataset_schema(dataset_id: str):
         try:
-            return tool_get_dataset_schema(dataset_id)
-        except KeyError:
-            raise HTTPException(status_code=404, detail="Dataset not found")
+            return session.run_agent(request.dataset_id, request.message, thread_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/chat/stream")
+    async def chat_stream(request: StreamRequest):
+        def sse(event: str, payload: Dict[str, Any]) -> str:
+            # LangGraph event payloads can include non-JSON-native objects
+            # (e.g., ToolMessage instances). Convert unknown objects to strings
+            # so streaming never fails mid-run.
+            return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+        msg = request.message.strip()
+        thread_id = request.thread_id or f"thread-{uuid.uuid4()}"
+
+        # Fast paths emit synthetic events
+        if msg.lower().startswith("sql:") or msg.lower().startswith("python:"):
+
+            async def fast_stream():
+                if msg.lower().startswith("sql:"):
+                    sql = msg.split(":", 1)[1].strip()
+                    resp = _execute_direct(
+                        sandbox_executor,
+                        settings,
+                        message_store,
+                        settings.capsule_db_path,
+                        request,
+                        "sql",
+                        sql=sql,
+                    )
+                else:
+                    code = msg.split(":", 1)[1].strip()
+                    resp = _execute_direct(
+                        sandbox_executor,
+                        settings,
+                        message_store,
+                        settings.capsule_db_path,
+                        request,
+                        "python",
+                        python_code=code,
+                    )
+                yield sse("status", {"stage": "planning"})
+                yield sse("status", {"stage": "executing"})
+                yield sse("result", resp)
+                yield sse("done", {"run_id": resp["run_id"]})
+
+            return StreamingResponse(fast_stream(), media_type="text/event-stream")
+
+        # Agent streaming path
+        async def agent_stream():
+            try:
+                # Tactical reliability path: run the agent call in a worker thread
+                # and stream status/result events without hanging the request.
+                yield sse("status", {"stage": "planning"})
+                response = await anyio.to_thread.run_sync(
+                    session.run_agent,
+                    request.dataset_id,
+                    request.message,
+                    thread_id,
+                )
+                yield sse("status", {"stage": "executing"})
+                yield sse("result", response)
+                yield sse("done", {"run_id": response["run_id"]})
+            except KeyError as exc:
+                yield sse("error", {"type": "NOT_FOUND", "message": str(exc)})
+                yield sse("done", {})
+            except Exception as exc:  # pragma: no cover
+                yield sse("error", {"type": "AGENT_ERROR", "message": str(exc)})
+                yield sse("done", {})
+
+        return StreamingResponse(agent_stream(), media_type="text/event-stream")
 
     @app.post("/runs", response_model=ChatResponse)
     async def submit_run(request: RunSubmitRequest):
-        services: AppServices = app.state.services
-        registry = _load_registry(services.settings)
+        registry = load_registry(settings.datasets_dir)
         try:
-            dataset = _dataset_by_id(registry, request.dataset_id)
+            dataset = get_dataset_by_id(registry, request.dataset_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         run_id = str(uuid.uuid4())
         created_at = _utc_now_iso()
         query_mode = request.query_type
-        compiled_sql = None
+        compiled_sql: Optional[str] = None
         plan_json = request.plan_json
-        python_code = request.python_code
+        python_code_val = request.python_code
+
+        files = [
+            {"name": e["name"], "path": f"/data/{e['path']}"}
+            for e in dataset.get("files", [])
+        ]
 
         if request.query_type == "sql":
             if not request.sql:
                 raise HTTPException(
                     status_code=400, detail="sql is required for query_type=sql"
                 )
-            outcome = tool_execute_sql(dataset, request.sql)
-            compiled_sql = outcome.get("compiled_sql")
+            sql = normalize_sql_for_dataset(request.sql, request.dataset_id)
+            compiled_sql = sql
+            policy_error = validate_sql_policy(sql)
+            if policy_error:
+                # Rejected — persist and return
+                result_payload: Dict[str, Any] = {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
+                }
+                status = "rejected"
+            else:
+                payload = {
+                    "dataset_id": dataset["id"],
+                    "files": files,
+                    "query_type": "sql",
+                    "timeout_seconds": settings.run_timeout_seconds,
+                    "max_rows": settings.max_rows,
+                    "max_output_bytes": settings.max_output_bytes,
+                    "sql": sql,
+                }
+                raw = sandbox_executor.submit_run(payload, query_type="sql")
+                runner_result = raw.get("result", raw)
+                status = _map_runner_status(runner_result)
+                result_payload = {
+                    "columns": runner_result.get("columns", []),
+                    "rows": runner_result.get("rows", []),
+                    "row_count": runner_result.get("row_count", 0),
+                    "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "error": runner_result.get("error"),
+                }
+
         elif request.query_type == "python":
             if not request.python_code:
                 raise HTTPException(
                     status_code=400,
                     detail="python_code is required for query_type=python",
                 )
-            outcome = tool_execute_python(dataset, request.python_code)
-        else:
+            if not settings.enable_python_execution:
+                result_payload = {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {
+                        "type": "FEATURE_DISABLED",
+                        "message": "Python execution mode is disabled.",
+                    },
+                }
+                status = "rejected"
+            else:
+                payload = {
+                    "dataset_id": dataset["id"],
+                    "files": files,
+                    "query_type": "python",
+                    "timeout_seconds": settings.run_timeout_seconds,
+                    "max_rows": settings.max_rows,
+                    "max_output_bytes": settings.max_output_bytes,
+                    "python_code": request.python_code,
+                }
+                raw = sandbox_executor.submit_run(payload, query_type="python")
+                runner_result = raw.get("result", raw)
+                status = _map_runner_status(runner_result)
+                result_payload = {
+                    "columns": runner_result.get("columns", []),
+                    "rows": runner_result.get("rows", []),
+                    "row_count": runner_result.get("row_count", 0),
+                    "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "error": runner_result.get("error"),
+                }
+
+        else:  # plan
             if not request.plan_json:
                 raise HTTPException(
                     status_code=400, detail="plan_json is required for query_type=plan"
                 )
-            try:
-                outcome = tool_execute_query_plan(dataset, request.plan_json)
-                plan_json = outcome.get("plan_json")
-                compiled_sql = outcome.get("compiled_sql")
-            except ValidationError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            from .models.query_plan import QueryPlan
 
-        status = outcome.get("status", "failed")
-        raw_result = outcome.get("result", {})
+            try:
+                plan = QueryPlan.model_validate(
+                    {**request.plan_json, "dataset_id": request.dataset_id}
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            plan_json = plan.model_dump()
+            compiled_sql = compiler.compile(plan)
+            sql = normalize_sql_for_dataset(compiled_sql, request.dataset_id)
+            compiled_sql = sql
+
+            policy_error = validate_sql_policy(sql)
+            if policy_error:
+                result_payload = {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "exec_time_ms": 0,
+                    "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
+                }
+                status = "rejected"
+            else:
+                payload = {
+                    "dataset_id": dataset["id"],
+                    "files": files,
+                    "query_type": "sql",
+                    "timeout_seconds": settings.run_timeout_seconds,
+                    "max_rows": settings.max_rows,
+                    "max_output_bytes": settings.max_output_bytes,
+                    "sql": sql,
+                }
+                raw = sandbox_executor.submit_run(payload, query_type="sql")
+                runner_result = raw.get("result", raw)
+                status = _map_runner_status(runner_result)
+                result_payload = {
+                    "columns": runner_result.get("columns", []),
+                    "rows": runner_result.get("rows", []),
+                    "row_count": runner_result.get("row_count", 0),
+                    "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "error": runner_result.get("error"),
+                }
+
         response = ChatResponse(
             assistant_message="Run submitted and executed.",
             run_id=run_id,
             status=(
-                status if status in {"succeeded", "failed", "rejected"} else "failed"
+                status
+                if status in {"succeeded", "failed", "rejected", "timed_out"}
+                else "failed"
             ),
-            result={
-                "columns": raw_result.get("columns", []),
-                "rows": raw_result.get("rows", []),
-                "row_count": raw_result.get("row_count", 0),
-                "exec_time_ms": raw_result.get("exec_time_ms", 0),
-                "error": raw_result.get("error"),
-            },
+            result=result_payload,
             details={
                 "dataset_id": request.dataset_id,
                 "query_mode": query_mode,
                 "plan_json": plan_json,
                 "compiled_sql": compiled_sql,
-                "python_code": python_code,
+                "python_code": python_code_val,
             },
         )
-        _insert_capsule(
-            services.settings.capsule_db_path,
+
+        insert_capsule(
+            settings.capsule_db_path,
             {
                 "run_id": run_id,
                 "created_at": created_at,
@@ -1574,7 +771,7 @@ def create_app(
                 "query_mode": query_mode,
                 "plan_json": plan_json,
                 "compiled_sql": compiled_sql,
-                "python_code": python_code,
+                "python_code": python_code_val,
                 "status": response.status,
                 "result_json": response.result,
                 "error_json": response.result.get("error"),
@@ -1583,71 +780,44 @@ def create_app(
         )
         return response
 
-    @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest):
-        try:
-            return process_chat(request)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.post("/chat/stream")
-    async def chat_stream(request: StreamRequest):
-        def sse(event: str, payload: Dict[str, Any]) -> str:
-            return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
-
-        async def stream():
-            statuses: list[str] = []
-
-            def cb(stage: str):
-                statuses.append(stage)
-
-            try:
-                response = process_chat(request, status_cb=cb)
-                for stage in statuses:
-                    yield sse("status", {"stage": stage})
-                yield sse("result", response.model_dump())
-                yield sse("done", {"run_id": response.run_id})
-            except Exception as exc:  # pragma: no cover - defensive stream guard
-                yield sse(
-                    "error",
-                    {
-                        "type": "RUNNER_INTERNAL_ERROR",
-                        "message": str(exc),
-                    },
-                )
-                yield sse("done", {})
-
-        return StreamingResponse(stream(), media_type="text/event-stream")
-
     @app.get("/runs/{run_id}")
     async def get_run(run_id: str):
-        capsule = _get_capsule(app.state.services.settings.capsule_db_path, run_id)
+        capsule = get_capsule(settings.capsule_db_path, run_id)
         if not capsule:
             raise HTTPException(status_code=404, detail="Run not found")
         return capsule
 
     @app.get("/runs/{run_id}/status")
     async def get_run_status(run_id: str):
-        return tool_get_run_status(run_id)
+        capsule = get_capsule(settings.capsule_db_path, run_id)
+        if not capsule:
+            return {"run_id": run_id, "status": "not_found"}
+        return {"run_id": run_id, "status": capsule.get("status")}
 
     @app.get("/threads/{thread_id}/messages")
     async def get_thread_messages(thread_id: str, limit: int = 50):
         capped = min(max(limit, 1), 200)
         return {
             "thread_id": thread_id,
-            "messages": app.state.services.message_store.get_messages(
+            "messages": message_store.get_messages(
                 thread_id=thread_id,
                 limit=capped,
             ),
         }
 
     _STATIC_DIR = Path(__file__).resolve().parent / "static"
+    _INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     @app.get("/")
     async def home():
-        return FileResponse(_STATIC_DIR / "index.html")
+        return HTMLResponse(content=_INDEX_HTML)
 
     return app
 
 
-app = create_app()
+# Module-level app instance for uvicorn; guarded so test imports don't fail
+# when no LLM key is configured or provider packages are incompatible.
+try:
+    app = create_app()
+except Exception:  # pragma: no cover
+    app = None  # type: ignore[assignment]
