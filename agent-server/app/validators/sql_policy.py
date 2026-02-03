@@ -21,6 +21,17 @@ SQL_BLOCKLIST = [
     "call",
     "copy",
     "export",
+    # DuckDB file-read table functions
+    "read_csv",
+    "read_csv_auto",
+    "read_json",
+    "read_parquet",
+    "read_excel",
+    "read_text",
+    "glob",
+    "list_dir",
+    "file_size",
+    "file_exists",
 ]
 
 

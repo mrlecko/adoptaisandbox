@@ -1,0 +1,18 @@
+{{- if and .Values.rbac.create .Values.rbac.allowJobManagement }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "csv-analyst-chat.fullname" . }}
+  labels:
+    {{- include "csv-analyst-chat.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs", "jobs/status"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+{{- end }}

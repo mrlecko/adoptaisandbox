@@ -18,7 +18,7 @@ Implemented now:
 - ✅ Python sandbox execution mode in same runner image via separate entrypoint (`runner/runner_python.py`)
 
 In progress:
-- 🚧 Kubernetes Job execution + Helm production deployment path
+- 🚧 Kubernetes/Helm production hardening and live-cluster validation
 - 🚧 Final security hardening/documentation for production profile
 
 ## Architecture (Current)
@@ -26,7 +26,7 @@ In progress:
 1. UI (static page from FastAPI) calls `/chat` or `/chat/stream`.
 2. LangChain/LangGraph agent decides tool calls (dataset/schema lookup, SQL/Python execution).
 3. QueryPlan (if used) is compiled to SQL in agent-server.
-4. SQL/Python execution happens only inside the configured sandbox provider (`docker` or `microsandbox`).
+4. SQL/Python execution happens only inside the configured sandbox provider (`docker`, `microsandbox`, or `k8s`).
 5. Result + metadata are stored in run capsules and returned to the UI.
 
 Important arrangement:
@@ -156,6 +156,55 @@ Tip:
 - `make test-microsandbox`
 - `make test-unit`
 
+Deployment convenience targets:
+- `make local-deploy` (checks prerequisites + local setup)
+- `make deploy-all-local` (one command: local setup + kind deploy + functional `/runs` check)
+- `make k8s-deploy-k8s-job` (one-command kind deploy, native K8s Job sandbox)
+- `make k8s-deploy-microsandbox MSB_SERVER_URL=...` (one-command kind deploy, MicroSandbox profile)
+- `make k8s-test-runs` (functional `/runs` SQL check)
+
+## Kubernetes + Helm (Increment 2)
+
+Helm chart location:
+- `helm/csv-analyst-chat`
+
+Core deployment commands:
+
+```bash
+make k8s-up
+make build-agent-k8s K8S_IMAGE_REPOSITORY=csv-analyst-agent K8S_IMAGE_TAG=dev
+make build-runner-k8s K8S_IMAGE_TAG=dev
+make kind-load-agent-image K8S_IMAGE_REPOSITORY=csv-analyst-agent K8S_IMAGE_TAG=dev
+make helm-install K8S_IMAGE_REPOSITORY=csv-analyst-agent K8S_IMAGE_TAG=dev K8S_SANDBOX_PROVIDER=k8s
+make k8s-smoke
+```
+
+Fastest end-to-end local path (requires `OPENAI_API_KEY`):
+
+```bash
+export OPENAI_API_KEY=...
+make deploy-all-local
+```
+
+Profile shortcuts:
+
+```bash
+make helm-template-k8s-job
+make helm-template-microsandbox
+make helm-install-k8s-job
+make helm-install-microsandbox
+```
+
+For in-cluster runner jobs, set:
+- `SANDBOX_PROVIDER=k8s`
+- `RUNNER_IMAGE=<runner image with datasets at /data>` (for local kind, use `make build-runner-k8s`)
+
+Detailed deployment spec and remote-hosting guidance:
+- `docs/features/HELM_K8S_DEPLOYMENT_SPEC.md`
+- `docs/runbooks/K8S_HELM_DOCKER_RUNBOOK.md` (local kind + remote VPS runbook, `SANDBOX_PROVIDER=k8s`, no MicroSandbox)
+- `docs/runbooks/K8S_HELM_PROFILE_CONTEXTS.md` (separate Helm profile contexts for `k8s` vs `microsandbox`)
+- `DEPLOYMENT.md` (WHAT/WHY/HOW deployment guide with one-command local + K8s flows)
+
 ## MicroSandbox Troubleshooting
 
 - If MicroSandbox tests are skipped, set `RUN_MICROSANDBOX_TESTS=1`.
@@ -171,7 +220,10 @@ Defined in `.env.example`:
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 - `DATASETS_DIR`, `CAPSULE_DB_PATH`
 - `RUNNER_IMAGE`, `RUN_TIMEOUT_SECONDS`, `MAX_ROWS`, `LOG_LEVEL`
-- `SANDBOX_PROVIDER` (`docker|microsandbox`)
+- `SANDBOX_PROVIDER` (`docker|microsandbox|k8s`)
+- `K8S_NAMESPACE`, `K8S_SERVICE_ACCOUNT_NAME`, `K8S_IMAGE_PULL_POLICY`
+- `K8S_CPU_LIMIT`, `K8S_MEMORY_LIMIT`, `K8S_DATASETS_PVC`
+- `K8S_JOB_TTL_SECONDS`, `K8S_POLL_INTERVAL_SECONDS`
 - `MSB_SERVER_URL`, `MSB_API_KEY`, `MSB_NAMESPACE`, `MSB_MEMORY_MB`, `MSB_CPUS`
 - `MSB_CLI_PATH`, `MSB_FALLBACK_IMAGE` (optional MicroSandbox CLI fallback controls)
 - `MAX_OUTPUT_BYTES`, `ENABLE_PYTHON_EXECUTION`
@@ -203,7 +255,7 @@ Defined in `.env.example`:
 │   │   ├── tools.py              # Agent tools (execute SQL/Python, schema lookup, etc.)
 │   │   ├── llm.py                # LLM/provider factory
 │   │   ├── models/query_plan.py  # QueryPlan DSL
-│   │   ├── executors/            # Docker and MicroSandbox executors
+│   │   ├── executors/            # Docker, MicroSandbox, and K8s Job executors
 │   │   └── validators/compiler.py
 │   └── demo_query_plan.py
 ├── datasets/

@@ -1,0 +1,23 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if eq .Values.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "csv-analyst-chat.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if eq .Values.service.type "LoadBalancer" }}
+  kubectl get svc --namespace {{ .Release.Namespace }} {{ include "csv-analyst-chat.fullname" . }} -w
+{{- else }}
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "csv-analyst-chat.fullname" . }} 8000:{{ .Values.service.port }}
+  # Then open http://127.0.0.1:8000
+{{- end }}
+
+2. Check health and metrics:
+  curl -s http://127.0.0.1:8000/healthz
+  curl -s http://127.0.0.1:8000/metrics | head
+
+3. Important deployment note:
+  - Ensure datasets are available at DATASETS_DIR inside the container.
+  - Either bake datasets into the image or set datasets.existingClaim.

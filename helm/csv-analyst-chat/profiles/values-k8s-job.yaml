@@ -1,0 +1,6 @@
+# Profile: Native Kubernetes Job executor
+env:
+  SANDBOX_PROVIDER: k8s
+  K8S_NAMESPACE: csv-analyst
+  RUNNER_IMAGE: csv-analyst-runner:dev
+

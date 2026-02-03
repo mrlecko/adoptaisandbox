@@ -709,12 +709,12 @@
       return '<div class="empty-state">No rows returned.</div>';
 
     let h = '<table><thead><tr>';
-    for (const c of columns) h += '<th>' + c + '</th>';
+    for (const c of columns) h += '<th>' + escHtml(c) + '</th>';
     h += '</tr></thead><tbody>';
     for (const r of rows) {
       h += '<tr>';
       for (let i = 0; i < columns.length; i++)
-        h += '<td>' + fmtVal(columns[i], i < r.length ? r[i] : null) + '</td>';
+        h += '<td>' + escHtml(fmtVal(columns[i], i < r.length ? r[i] : null)) + '</td>';
       h += '</tr>';
     }
     return h + '</tbody></table>';
@@ -735,7 +735,7 @@
 
     if (data.result && data.result.error) {
       resultEl.innerHTML = '<div class="empty-state err">' +
-        (data.result.error.message || 'Execution failed') + '</div>';
+        escHtml(data.result.error.message || 'Execution failed') + '</div>';
       rcEl.textContent = '';
     } else {
       resultEl.innerHTML = renderTable(data.result.columns, data.result.rows);

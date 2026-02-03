@@ -50,6 +50,25 @@ BLOCKED_MODULES = {
 }
 BLOCKED_CALLS = {"open", "exec", "eval", "compile", "__import__", "input"}
 
+# Methods blocked on specific namespace variables (pd.read_csv, np.load, etc.)
+BLOCKED_MODULE_METHODS = {
+    "pd": {
+        "read_csv", "read_excel", "read_json", "read_parquet", "read_table",
+        "read_fwf", "read_html", "read_sql", "read_clipboard", "read_stata",
+        "read_sas", "read_spss", "read_orc", "read_pickle",
+    },
+    "np": {
+        "load", "save", "savez", "savez_compressed",
+        "fromfile", "tofile", "loadtxt", "savetxt", "genfromtxt",
+    },
+}
+
+# Write-method names blocked on ANY object (covers df.to_csv, series.to_parquet, etc.)
+BLOCKED_WRITE_ATTRS = {
+    "to_csv", "to_excel", "to_parquet", "to_pickle", "to_sql",
+    "to_stata", "to_clipboard", "to_orc",
+}
+
 class RunnerRequest:
     def __init__(self, data: Dict[str, Any]):
         self.dataset_id = data.get("dataset_id", "unknown")
@@ -95,10 +114,19 @@ def validate_python_policy(code: str) -> Optional[str]:
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in BLOCKED_CALLS:
                 return f"Blocked call: {node.func.id}"
-            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                mod = node.func.value.id
-                if mod in BLOCKED_MODULES:
-                    return f"Blocked module access: {mod}"
+            if isinstance(node.func, ast.Attribute):
+                attr_name = node.func.attr
+                if isinstance(node.func.value, ast.Name):
+                    mod = node.func.value.id
+                    if mod in BLOCKED_MODULES:
+                        return f"Blocked module access: {mod}"
+                    if mod in BLOCKED_MODULE_METHODS and attr_name in BLOCKED_MODULE_METHODS[mod]:
+                        return f"Blocked method: {mod}.{attr_name}"
+                if attr_name in BLOCKED_WRITE_ATTRS:
+                    return f"Blocked method: {attr_name}"
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                return f"Blocked dunder access: {node.attr}"
 
     return None
 

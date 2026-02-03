@@ -1,0 +1,8 @@
+# Profile: MicroSandbox executor from Kubernetes agent-server
+env:
+  SANDBOX_PROVIDER: microsandbox
+  # Override this in live environments.
+  MSB_SERVER_URL: http://microsandbox.default.svc.cluster.local:5555/api/v1/rpc
+  MSB_NAMESPACE: default
+  RUNNER_IMAGE: csv-analyst-runner:dev
+

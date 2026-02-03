@@ -18,6 +18,8 @@ from .executors.base import Executor
 from .validators.compiler import QueryPlanCompiler
 from .validators.sql_policy import normalize_sql_for_dataset, validate_sql_policy
 
+from .execution import execute_in_sandbox
+
 # Names that produce execution results — capsule extraction filters on these
 EXECUTION_TOOL_NAMES = {"execute_sql", "execute_query_plan", "execute_python"}
 
@@ -45,23 +47,16 @@ def create_tools(
         query_type: str = "sql",
         python_code: str = "",
     ) -> Dict[str, Any]:
-        files = [
-            {"name": entry["name"], "path": f"/data/{entry['path']}"}
-            for entry in dataset.get("files", [])
-        ]
-        payload: Dict[str, Any] = {
-            "dataset_id": dataset["id"],
-            "files": files,
-            "query_type": query_type,
-            "timeout_seconds": timeout_seconds,
-            "max_rows": max_rows,
-            "max_output_bytes": max_output_bytes,
-        }
-        if query_type == "python":
-            payload["python_code"] = python_code
-        else:
-            payload["sql"] = sql
-        return executor.submit_run(payload, query_type=query_type)
+        return execute_in_sandbox(
+            executor,
+            dataset,
+            query_type=query_type,
+            sql=sql,
+            python_code=python_code,
+            timeout_seconds=timeout_seconds,
+            max_rows=max_rows,
+            max_output_bytes=max_output_bytes,
+        )
 
     # ── tool: list_datasets ──────────────────────────────────────────────
 
@@ -223,4 +218,10 @@ def create_tools(
         result = raw.get("result", raw)
         return json.dumps(result)
 
-    return [list_datasets, get_dataset_schema, execute_sql, execute_query_plan, execute_python]
+    return [
+        list_datasets,
+        get_dataset_schema,
+        execute_sql,
+        execute_query_plan,
+        execute_python,
+    ]

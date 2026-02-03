@@ -425,45 +425,115 @@ class AgentSession:
         )
 
         input_messages = _history_to_messages(history)
+        prior_context = _last_successful_run_context(
+            history,
+            dataset_id,
+            self.capsule_db_path,
+        )
+        if prior_context:
+            input_messages.append(SystemMessage(content=prior_context))
         input_messages.append(HumanMessage(content=message))
 
         all_messages: List[BaseMessage] = []
 
-        # Stream events via astream_events v2
-        async for event in self.agent_graph.astream_events(
-            {"messages": input_messages}, version="v2"
-        ):
-            kind = event.get("event", "")
-            data = event.get("data", {})
+        try:
+            # Stream events via astream_events v2
+            async for event in self.agent_graph.astream_events(
+                {"messages": input_messages}, version="v2"
+            ):
+                kind = event.get("event", "")
+                data = event.get("data", {})
 
-            if kind == "on_chat_model_stream":
-                chunk = data.get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    yield {"event": "token", "data": {"content": str(chunk.content)}}
+                if kind == "on_chat_model_stream":
+                    chunk = data.get("chunk")
+                    if chunk and hasattr(chunk, "content") and chunk.content:
+                        yield {"event": "token", "data": {"content": str(chunk.content)}}
 
-            elif kind == "on_tool_start":
-                yield {
-                    "event": "tool_call",
-                    "data": {
-                        "name": data.get("input", {}).get(
-                            "name", event.get("name", "")
-                        ),
-                        "input": data.get("input", {}),
+                elif kind == "on_tool_start":
+                    yield {
+                        "event": "tool_call",
+                        "data": {
+                            "name": data.get("input", {}).get(
+                                "name", event.get("name", "")
+                            ),
+                            "input": data.get("input", {}),
+                        },
+                    }
+
+                elif kind == "on_tool_end":
+                    yield {
+                        "event": "tool_result",
+                        "data": {"output": data.get("output", "")},
+                    }
+
+                elif kind == "on_chain_end":
+                    output = data.get("output", {})
+                    if isinstance(output, dict) and isinstance(
+                        output.get("messages"), list
+                    ):
+                        all_messages = output["messages"]
+
+        except GraphRecursionError as exc:
+            LOGGER.warning(
+                "Agent recursion limit hit during stream (thread=%s, dataset=%s): %s",
+                thread_id,
+                dataset_id,
+                exc,
+            )
+            assistant_message = (
+                "I hit an internal reasoning limit while refining that request. "
+                "Please rephrase it with explicit fields/tables (for example: "
+                "'top 10 products by revenue including inventory.name')."
+            )
+            self.message_store.append_message(
+                thread_id=thread_id,
+                role="assistant",
+                content=assistant_message,
+                dataset_id=dataset_id,
+                run_id=run_id,
+            )
+            insert_capsule(
+                self.capsule_db_path,
+                {
+                    "run_id": run_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "dataset_id": dataset_id,
+                    "dataset_version_hash": None,
+                    "question": message,
+                    "query_mode": "chat",
+                    "plan_json": None,
+                    "compiled_sql": None,
+                    "python_code": None,
+                    "status": "failed",
+                    "result_json": {
+                        "columns": [],
+                        "rows": [],
+                        "row_count": 0,
+                        "exec_time_ms": 0,
+                        "error": {
+                            "type": "AGENT_RECURSION_LIMIT",
+                            "message": "Agent reached recursion limit before completion.",
+                        },
                     },
-                }
-
-            elif kind == "on_tool_end":
-                yield {
-                    "event": "tool_result",
-                    "data": {"output": data.get("output", "")},
-                }
-
-            elif kind == "on_chain_end":
-                output = data.get("output", {})
-                if isinstance(output, dict) and isinstance(
-                    output.get("messages"), list
-                ):
-                    all_messages = output["messages"]
+                    "error_json": {
+                        "type": "AGENT_RECURSION_LIMIT",
+                        "message": "Agent reached recursion limit before completion.",
+                    },
+                    "exec_time_ms": 0,
+                },
+            )
+            yield {
+                "event": "error",
+                "data": {
+                    "type": "AGENT_RECURSION_LIMIT",
+                    "message": (
+                        "I hit an internal reasoning limit while refining that request. "
+                        "Please retry with explicit fields/tables."
+                    ),
+                },
+            }
+            yield {"event": "done", "data": {"run_id": run_id}}
+            return
 
         # Extract capsule and persist
         capsule_data = _extract_capsule_data(all_messages, dataset_id, message)

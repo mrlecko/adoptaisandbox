@@ -1,0 +1,139 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mrlecko/adoptaisandbox-agent-server
+  tag: main
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+  # Keep true to pre-provision least-privilege hooks for future K8s Job executor.
+  # Current runtime can run without these permissions.
+  allowJobManagement: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: csv-analyst.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClassName: ""
+
+datasets:
+  # Option A (recommended): bake datasets into image and leave existingClaim empty.
+  # Option B: mount an existing PVC that contains the datasets tree.
+  existingClaim: ""
+  mountPath: /app/datasets
+
+# Non-sensitive env vars
+env:
+  LLM_PROVIDER: auto
+  OPENAI_MODEL: gpt-4o-mini
+  ANTHROPIC_MODEL: claude-3-5-sonnet-20240620
+  LOG_LEVEL: info
+  DATASETS_DIR: datasets
+  CAPSULE_DB_PATH: /app/capsules/capsules.db
+  RUNNER_IMAGE: ghcr.io/mrlecko/adoptaisandbox-runner:main
+  RUN_TIMEOUT_SECONDS: "10"
+  MAX_ROWS: "200"
+  MAX_OUTPUT_BYTES: "65536"
+  ENABLE_PYTHON_EXECUTION: "true"
+  STORAGE_PROVIDER: sqlite
+  THREAD_HISTORY_WINDOW: "12"
+  # Provider options: docker | microsandbox | k8s
+  # In-cluster native execution uses k8s (one Job per run).
+  SANDBOX_PROVIDER: microsandbox
+  K8S_NAMESPACE: default
+  K8S_SERVICE_ACCOUNT_NAME: ""
+  K8S_IMAGE_PULL_POLICY: IfNotPresent
+  K8S_CPU_LIMIT: 500m
+  K8S_MEMORY_LIMIT: 512Mi
+  K8S_DATASETS_PVC: ""
+  K8S_JOB_TTL_SECONDS: "300"
+  K8S_POLL_INTERVAL_SECONDS: "0.25"
+  MSB_SERVER_URL: ""
+  MSB_API_KEY: ""
+  MSB_NAMESPACE: default
+  MSB_MEMORY_MB: "512"
+  MSB_CPUS: "1.0"
+  MLFLOW_OPENAI_AUTOLOG: "false"
+  MLFLOW_TRACKING_URI: ""
+  MLFLOW_EXPERIMENT_NAME: CSV Analyst Agent
+
+# Sensitive env vars can be sourced from an existing secret.
+existingSecretName: ""
+secretEnv:
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+
+networkPolicy:
+  enabled: false
+  # If true, default deny egress for this pod.
+  # Keep false unless you explicitly allow required destinations (LLM provider, MicroSandbox, etc).
+  denyAllEgress: false

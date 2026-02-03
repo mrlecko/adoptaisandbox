@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "automount": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "allowJobManagement": { "type": "boolean" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["type", "port"],
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "paths"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "pathType"],
+                  "properties": {
+                    "path": { "type": "string" },
+                    "pathType": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": { "type": "array" }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "accessModes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "size": { "type": "string", "minLength": 1 },
+        "storageClassName": { "type": "string" }
+      }
+    },
+    "datasets": {
+      "type": "object",
+      "properties": {
+        "existingClaim": { "type": "string" },
+        "mountPath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "LLM_PROVIDER": { "type": "string", "enum": ["auto", "openai", "anthropic"] },
+        "SANDBOX_PROVIDER": { "type": "string", "enum": ["docker", "microsandbox", "k8s"] },
+        "DATASETS_DIR": { "type": "string" },
+        "CAPSULE_DB_PATH": { "type": "string" },
+        "RUN_TIMEOUT_SECONDS": { "type": "string", "pattern": "^[0-9]+$" },
+        "MAX_ROWS": { "type": "string", "pattern": "^[0-9]+$" },
+        "MAX_OUTPUT_BYTES": { "type": "string", "pattern": "^[0-9]+$" },
+        "ENABLE_PYTHON_EXECUTION": { "type": "string", "enum": ["true", "false"] },
+        "K8S_NAMESPACE": { "type": "string" },
+        "K8S_SERVICE_ACCOUNT_NAME": { "type": "string" },
+        "K8S_IMAGE_PULL_POLICY": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "K8S_CPU_LIMIT": { "type": "string" },
+        "K8S_MEMORY_LIMIT": { "type": "string" },
+        "K8S_DATASETS_PVC": { "type": "string" },
+        "K8S_JOB_TTL_SECONDS": { "type": "string", "pattern": "^[0-9]+$" },
+        "K8S_POLL_INTERVAL_SECONDS": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+        "MSB_SERVER_URL": { "type": "string" },
+        "MSB_API_KEY": { "type": "string" },
+        "MLFLOW_OPENAI_AUTOLOG": { "type": "string", "enum": ["true", "false"] },
+        "MLFLOW_TRACKING_URI": { "type": "string" }
+      }
+    },
+    "existingSecretName": { "type": "string" },
+    "secretEnv": {
+      "type": "object",
+      "properties": {
+        "OPENAI_API_KEY": { "type": "string" },
+        "ANTHROPIC_API_KEY": { "type": "string" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "denyAllEgress": { "type": "boolean" }
+      }
+    }
+  }
+}

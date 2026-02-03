@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Initial Helm chart scaffold for Kubernetes deployment (`helm/csv-analyst-chat`) with values schema, Deployment/Service/Ingress, PVC, RBAC, and NetworkPolicy templates
+- Native Kubernetes sandbox backend via `K8sJobExecutor` (`agent-server/app/executors/k8s_executor.py`) with per-run Job creation, polling, pod-log result parsing, and best-effort cleanup
+- Kubernetes-oriented image build paths with baked datasets (`agent-server/Dockerfile.k8s`, `runner/Dockerfile.k8s`)
+- Deployment specification document for Helm/K8s local + remote testing strategy (`docs/features/HELM_K8S_DEPLOYMENT_SPEC.md`)
+- Kubernetes deployment runbook for local kind and remote VPS (k3s) using `SANDBOX_PROVIDER=k8s` (`docs/runbooks/K8S_HELM_DOCKER_RUNBOOK.md`)
+- Helm profile values for separate Kubernetes runtime contexts:
+  - `helm/csv-analyst-chat/profiles/values-k8s-job.yaml`
+  - `helm/csv-analyst-chat/profiles/values-microsandbox.yaml`
+- Kubernetes profile context guide for humans/agents (`docs/runbooks/K8S_HELM_PROFILE_CONTEXTS.md`)
+- Top-level deployment guide documenting WHAT/WHY/HOW and deployment options (`DEPLOYMENT.md`)
+- K8s executor unit coverage (`tests/unit/test_k8s_executor.py`) and provider wiring tests for factory/app startup (`test_executor_factory.py`, `test_sandbox_provider_selection.py`)
 - Phase-0 telemetry baseline:
   - Request correlation id middleware (`x-request-id`)
   - Structured JSON request lifecycle logs
@@ -88,6 +99,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MicroSandbox executor CLI fallback path (`msb exe`) for environments where JSON-RPC image/runtime constraints block direct execution
 
 ### Changed
+- Expanded Makefile Kubernetes workflow with `helm-lint`, `helm-template`, `build-agent-k8s`, `build-runner-k8s`, image loading for kind, and concrete `k8s-smoke`
+- Extended sandbox provider configuration to support `SANDBOX_PROVIDER=k8s` across settings/env/factory/Helm schema
+- Added Makefile profile helpers for Kubernetes Helm contexts:
+  - `helm-template-k8s-job`
+  - `helm-template-microsandbox`
+  - `helm-install-k8s-job`
+  - `helm-install-microsandbox`
+- Added "idiot-proof" deployment targets with prerequisite checks and one-command flows:
+  - `local-preflight`, `local-deploy`, `local-smoke`
+  - `deploy-all-local`
+  - `k8s-preflight`, `k8s-load-images`, `k8s-create-llm-secret`
+  - `k8s-deploy-k8s-job`, `k8s-deploy-microsandbox`, `k8s-test-runs`
+- `/runs` now returns/persists executor run IDs and includes `stdout_trunc`/`stderr_trunc` in result payloads for easier runner diagnostics
 - Updated CLAUDE.md with dataset generation and testing guidance
 - Updated README.md with current project status
 - Updated TODO.md with completed tasks (Phase 0.1, 1.1, 1.2)
@@ -131,6 +155,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MicroSandbox timeout classification now remains stable in live fallback mode
 - Fixed `make run-mlflow` startup behavior by forcing venv bin into PATH (prevents `.../None` `huey_consumer.py` resolution errors)
 - Fixed MLflow trace input payload showing as `{}` by passing explicit trace input payload through traced wrappers
+- Fixed startup observability by logging explicit app initialization failures and returning deterministic `/healthz` startup-error responses
+- Fixed Helm RBAC gap for Kubernetes executor by granting `jobs/status` access
+- Fixed k8s runner pod security context by enforcing numeric `runAsUser`/`runAsGroup` (1000)
+- Fixed k8s runner output parsing by supporting Python-literal dict payloads in addition to strict JSON
 
 ### Security
 - SQL injection prevention in QueryPlan compiler

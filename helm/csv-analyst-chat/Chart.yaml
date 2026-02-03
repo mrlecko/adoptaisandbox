@@ -1,0 +1,14 @@
+apiVersion: v2
+name: csv-analyst-chat
+description: Helm chart for CSV Analyst Chat (FastAPI agent server with static UI)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - llm
+  - langchain
+  - fastapi
+  - csv
+home: https://github.com/mrlecko/adoptaisandbox
+maintainers:
+  - name: mrlecko

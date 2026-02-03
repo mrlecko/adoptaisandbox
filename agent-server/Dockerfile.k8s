@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY agent-server/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY agent-server/app /app/app
+COPY datasets /app/datasets
+
+ENV PYTHONUNBUFFERED=1
+ENV DATASETS_DIR=/app/datasets
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

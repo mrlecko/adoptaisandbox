@@ -1,0 +1,15 @@
+{{- if and .Values.rbac.create .Values.rbac.allowJobManagement }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "csv-analyst-chat.fullname" . }}
+  labels:
+    {{- include "csv-analyst-chat.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "csv-analyst-chat.serviceAccountName" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "csv-analyst-chat.fullname" . }}
+{{- end }}

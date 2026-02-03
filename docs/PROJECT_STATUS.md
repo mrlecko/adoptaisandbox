@@ -1,14 +1,14 @@
 # Project Status Report
 
 **Last Updated**: 2026-02-03  
-**Current Phase**: Phase 1 complete (stretch item deferred)
+**Current Phase**: Phase 2 in progress (K8s/Helm execution path active)
 
 ## Overall Progress
 
 ```text
 Phase 0: Bootstrap & Planning         ████████████████████ 100% ✅
 Phase 1: Foundations + Minimal UX     ████████████████████ 100% ✅
-Phase 2: Production Shape             ░░░░░░░░░░░░░░░░░░░░   0% ⏭️
+Phase 2: Production Shape             ████████░░░░░░░░░░░░  40% 🚧
 Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░░░░░░░   0% ⏭️
 ```
 
@@ -53,6 +53,9 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 - ✅ Configurable sandbox provider flag (`SANDBOX_PROVIDER`)
 - ✅ MicroSandbox executor implementation and provider wiring (live E2E validated)
 - ✅ Live MicroSandbox integration coverage (`RUN_MICROSANDBOX_TESTS=1`)
+- ✅ Kubernetes Job executor path (`SANDBOX_PROVIDER=k8s`) with Helm/RBAC wiring
+- ✅ Local kind + remote VPS deployment runbook (`docs/runbooks/K8S_HELM_DOCKER_RUNBOOK.md`)
+- ✅ Profile-based Helm context guide (`k8s` vs `microsandbox`) for Kubernetes deployment (`docs/runbooks/K8S_HELM_PROFILE_CONTEXTS.md`)
 
 ## In Progress 🚧
 
@@ -61,7 +64,6 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 
 ## Pending Components ⏭️
 
-- Kubernetes Job executor path
 - Helm deployment/runtime hardening
 - Expanded security/red-team suite
 - Production observability/reliability features

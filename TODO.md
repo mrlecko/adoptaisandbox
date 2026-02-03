@@ -18,7 +18,9 @@
 - ✅ **Agent architecture upgraded** to real LangChain/LangGraph tool-calling flow (`app/agent.py`, `app/tools.py`).
 - ✅ **MicroSandbox provider path implemented** (with Docker remaining default/local baseline).
 - ✅ **MLflow tracing integrated** (OpenAI autolog + session metadata on chat turns).
-- 🚧 **Main remaining PRD gap** is production deployment track (Kubernetes Job executor + Helm + hosted runbook + acceptance pass).
+- ✅ **Helm chart scaffold implemented** (`helm/csv-analyst-chat`) with schema/templates and local kind smoke path.
+- ✅ **K8sJobExecutor path implemented** (`SANDBOX_PROVIDER=k8s`, per-run Job submission + log/result parsing).
+- 🚧 **Main remaining PRD gap** is live-cluster acceptance/hardening (kind/DOKS validation, runner NetworkPolicy enforcement, CI k8s smoke).
 
 > Note: some deeper Phase 2/3/4 checkbox items below are stale relative to recent implementation work and should be normalized in a follow-up pass.
 
@@ -260,47 +262,47 @@ _Reference: `PYTHON_EXECUTION_SPEC.md`_
 ## Phase 2: Production Shape (Days 3-4)
 
 ### P2.1 Kubernetes Job Executor (FR-X4, Deployment-C)
-- [ ] Implement K8sJobExecutor
-  - [ ] Use Kubernetes Python client
-  - [ ] Create Job spec with:
-    - Runner image
-    - RunnerRequest JSON via environment variable
-    - Dataset access (baked into image for MVP)
-    - Security context (runAsNonRoot, readOnlyRootFilesystem, drop ALL caps, no privilege escalation)
-    - Resource limits (cpu, memory from config)
-  - [ ] Submit Job to namespace
-  - [ ] Poll Job status (Pending, Running, Succeeded, Failed)
-  - [ ] Fetch Pod logs for RunnerResponse JSON
-  - [ ] Cleanup completed Jobs (with retention policy)
-- [ ] Test K8sJobExecutor with kind/k3d cluster
-- [ ] Write integration tests
+- [x] Implement K8sJobExecutor
+  - [x] Use Kubernetes Python client
+  - [x] Create Job spec with:
+    - [x] Runner image
+    - [x] RunnerRequest JSON via environment variable
+    - [x] Dataset access (baked into image for MVP)
+    - [x] Security context (runAsNonRoot, readOnlyRootFilesystem, drop ALL caps, no privilege escalation)
+    - [x] Resource limits (cpu, memory from config)
+  - [x] Submit Job to namespace
+  - [x] Poll Job status (Pending, Running, Succeeded, Failed)
+  - [x] Fetch Pod logs for RunnerResponse JSON
+  - [x] Cleanup completed Jobs (with retention policy)
+- [ ] Test K8sJobExecutor with kind/k3d cluster (live)
+- [~] Write integration tests (unit/mocked done; live cluster path pending)
 
 **PRD Mapping:** Section 11, FR-X4, Deployment-C
 
 ### P2.2 Helm Chart (Deployment-C)
-- [ ] Create `/helm/csv-analyst-chat` directory
-- [ ] Create Chart.yaml (name, version, description)
-- [ ] Create values.yaml
+- [x] Create `/helm/csv-analyst-chat` directory
+- [x] Create Chart.yaml (name, version, description)
+- [x] Create values.yaml
   - Image repository, tags, pullPolicy
   - Ingress host, TLS on/off
   - Execution mode (docker/k8s)
   - Runner config (timeout, max_rows, resource limits)
   - Agent server replicas
-  - UI replicas
-- [ ] Create templates/
-  - [ ] deployment-ui.yaml
-  - [ ] deployment-agent-server.yaml
-  - [ ] service-ui.yaml
-  - [ ] service-agent-server.yaml
-  - [ ] ingress.yaml (with host, TLS config)
-  - [ ] serviceaccount.yaml (for agent server)
-  - [ ] role.yaml (Jobs: create/get/list/watch; Pods: get/list/watch; Pod logs: get)
-  - [ ] rolebinding.yaml
-  - [ ] networkpolicy.yaml (deny egress for runner pods)
+  - UI replicas (N/A: static UI is served by agent-server pod)
+- [~] Create templates/
+  - [x] deployment-agent-server.yaml
+  - [x] service-agent-server.yaml
+  - [x] ingress.yaml (with host, TLS config)
+  - [x] serviceaccount.yaml (for agent server)
+  - [x] role.yaml (Jobs: create/get/list/watch; Pods: get/list/watch; Pod logs: get)
+  - [x] rolebinding.yaml
+  - [x] networkpolicy.yaml
+  - [x] pvc.yaml (capsule persistence)
+  - [ ] runner-job template (optional; agent currently builds Jobs dynamically via Kubernetes API)
   - [ ] configmap-datasets.yaml (optional, for dataset metadata)
-- [ ] Lint Helm chart (`helm lint`)
+- [x] Lint Helm chart (`helm lint`)
 - [ ] Test Helm install on kind cluster
-- [ ] Write smoke test for K8s mode (`make k8s-smoke`)
+- [~] Write smoke test for K8s mode (`make k8s-smoke`) (implemented; needs live validation)
 
 **PRD Mapping:** Deployment-C, Section 11, NFR-SEC1
 

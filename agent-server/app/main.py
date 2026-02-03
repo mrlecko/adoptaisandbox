@@ -18,7 +18,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, Literal, Optional
 
-import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from langgraph.errors import GraphRecursionError
@@ -31,6 +30,7 @@ from .llm import create_llm
 from .storage import create_message_store
 from .storage.capsules import get_capsule, init_capsule_db, insert_capsule
 from .tools import create_tools
+from .execution import execute_in_sandbox
 from .validators.compiler import QueryPlanCompiler
 from .validators.sql_policy import normalize_sql_for_dataset, validate_sql_policy
 
@@ -111,12 +111,20 @@ class Settings(BaseModel):
     max_rows: int = Field(default=200)
     max_output_bytes: int = Field(default=65536)
     enable_python_execution: bool = Field(default=True)
-    sandbox_provider: Literal["docker", "microsandbox"] = Field(default="docker")
+    sandbox_provider: Literal["docker", "microsandbox", "k8s"] = Field(default="docker")
     msb_server_url: str = Field(default="http://127.0.0.1:5555/api/v1/rpc")
     msb_api_key: str = Field(default="")
     msb_namespace: str = Field(default="default")
     msb_memory_mb: int = Field(default=512)
     msb_cpus: float = Field(default=1.0)
+    k8s_namespace: str = Field(default="default")
+    k8s_service_account_name: str = Field(default="")
+    k8s_image_pull_policy: str = Field(default="IfNotPresent")
+    k8s_cpu_limit: str = Field(default="500m")
+    k8s_memory_limit: str = Field(default="512Mi")
+    k8s_datasets_pvc: str = Field(default="")
+    k8s_job_ttl_seconds: int = Field(default=300)
+    k8s_poll_interval_seconds: float = Field(default=0.25)
     storage_provider: str = Field(default="sqlite")
     thread_history_window: int = Field(default=12)
     mlflow_tracking_uri: Optional[str] = Field(default=None)
@@ -130,10 +138,16 @@ class Settings(BaseModel):
             raise ValueError(
                 "msb_server_url is required when sandbox_provider=microsandbox"
             )
+        if self.sandbox_provider == "k8s" and not self.k8s_namespace.strip():
+            raise ValueError("k8s_namespace is required when sandbox_provider=k8s")
         if self.msb_memory_mb <= 0:
             raise ValueError("msb_memory_mb must be > 0")
         if self.msb_cpus <= 0:
             raise ValueError("msb_cpus must be > 0")
+        if self.k8s_job_ttl_seconds < 0:
+            raise ValueError("k8s_job_ttl_seconds must be >= 0")
+        if self.k8s_poll_interval_seconds <= 0:
+            raise ValueError("k8s_poll_interval_seconds must be > 0")
         return self
 
 
@@ -346,21 +360,13 @@ def _execute_direct(
                 "error": {"type": "SQL_POLICY_VIOLATION", "message": policy_error},
             }
         else:
-            # Build payload and submit
-            files = [
-                {"name": e["name"], "path": f"/data/{e['path']}"}
-                for e in dataset.get("files", [])
-            ]
-            payload = {
-                "dataset_id": dataset["id"],
-                "files": files,
-                "query_type": "sql",
-                "timeout_seconds": settings.run_timeout_seconds,
-                "max_rows": settings.max_rows,
-                "max_output_bytes": settings.max_output_bytes,
-                "sql": sql,
-            }
-            raw = executor.submit_run(payload, query_type="sql")
+            raw = execute_in_sandbox(
+                executor, dataset,
+                query_type="sql", sql=sql,
+                timeout_seconds=settings.run_timeout_seconds,
+                max_rows=settings.max_rows,
+                max_output_bytes=settings.max_output_bytes,
+            )
             runner_result = raw.get("result", raw)
             status = _map_runner_status(runner_result)
             result_payload = {
@@ -389,20 +395,13 @@ def _execute_direct(
                 },
             }
         else:
-            files = [
-                {"name": e["name"], "path": f"/data/{e['path']}"}
-                for e in dataset.get("files", [])
-            ]
-            payload = {
-                "dataset_id": dataset["id"],
-                "files": files,
-                "query_type": "python",
-                "timeout_seconds": settings.run_timeout_seconds,
-                "max_rows": settings.max_rows,
-                "max_output_bytes": settings.max_output_bytes,
-                "python_code": python_code,
-            }
-            raw = executor.submit_run(payload, query_type="python")
+            raw = execute_in_sandbox(
+                executor, dataset,
+                query_type="python", python_code=python_code,
+                timeout_seconds=settings.run_timeout_seconds,
+                max_rows=settings.max_rows,
+                max_output_bytes=settings.max_output_bytes,
+            )
             runner_result = raw.get("result", raw)
             status = _map_runner_status(runner_result)
             result_payload = {
@@ -556,6 +555,14 @@ def create_app(
         msb_namespace=os.getenv("MSB_NAMESPACE", "default"),
         msb_memory_mb=int(os.getenv("MSB_MEMORY_MB", "512")),
         msb_cpus=float(os.getenv("MSB_CPUS", "1.0")),
+        k8s_namespace=os.getenv("K8S_NAMESPACE", "default"),
+        k8s_service_account_name=os.getenv("K8S_SERVICE_ACCOUNT_NAME", ""),
+        k8s_image_pull_policy=os.getenv("K8S_IMAGE_PULL_POLICY", "IfNotPresent"),
+        k8s_cpu_limit=os.getenv("K8S_CPU_LIMIT", "500m"),
+        k8s_memory_limit=os.getenv("K8S_MEMORY_LIMIT", "512Mi"),
+        k8s_datasets_pvc=os.getenv("K8S_DATASETS_PVC", ""),
+        k8s_job_ttl_seconds=int(os.getenv("K8S_JOB_TTL_SECONDS", "300")),
+        k8s_poll_interval_seconds=float(os.getenv("K8S_POLL_INTERVAL_SECONDS", "0.25")),
         storage_provider=os.getenv("STORAGE_PROVIDER", "sqlite"),
         thread_history_window=int(os.getenv("THREAD_HISTORY_WINDOW", "12")),
         mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI"),
@@ -591,6 +598,14 @@ def create_app(
         msb_namespace=settings.msb_namespace,
         msb_memory_mb=settings.msb_memory_mb,
         msb_cpus=settings.msb_cpus,
+        k8s_namespace=settings.k8s_namespace,
+        k8s_service_account_name=settings.k8s_service_account_name,
+        k8s_image_pull_policy=settings.k8s_image_pull_policy,
+        k8s_cpu_limit=settings.k8s_cpu_limit,
+        k8s_memory_limit=settings.k8s_memory_limit,
+        k8s_datasets_pvc=settings.k8s_datasets_pvc,
+        k8s_job_ttl_seconds=settings.k8s_job_ttl_seconds,
+        k8s_poll_interval_seconds=settings.k8s_poll_interval_seconds,
     )
 
     # ── tools + LLM + agent ─────────────────────────────────────────────
@@ -996,71 +1011,15 @@ def create_app(
 
         # Agent streaming path
         async def agent_stream():
+            response: Optional[Dict[str, Any]] = None
             try:
-                # Tactical reliability path: run the agent call in a worker thread
-                # and stream status/result events without hanging the request.
                 yield sse("status", {"stage": "planning"})
-                response = await anyio.to_thread.run_sync(
-                    lambda: _run_with_mlflow_session_trace(
-                        settings=settings,
-                        span_name="chat.stream.turn",
-                        user_id=user_id,
-                        session_id=thread_id,
-                        metadata=trace_meta,
-                        trace_input={
-                            "dataset_id": request.dataset_id,
-                            "message": request.message,
-                            "thread_id": thread_id,
-                            "input_mode": trace_meta["input_mode"],
-                        },
-                        fn=lambda: session.run_agent(
-                            request.dataset_id, request.message, thread_id
-                        ),
-                    ),
-                )
-                _metric_inc(
-                    AGENT_TURNS_TOTAL,
-                    endpoint="/chat/stream",
-                    input_mode=trace_meta["input_mode"],
-                    status=str(response.get("status", "failed")),
-                )
-                _log_structured(
-                    logging.INFO,
-                    "chat.stream.request.completed",
-                    request_id=req_id,
-                    dataset_id=request.dataset_id,
-                    thread_id=response.get("thread_id", thread_id),
-                    run_id=response.get("run_id"),
-                    input_mode=trace_meta["input_mode"],
-                    status=response.get("status"),
-                )
-                yield sse("status", {"stage": "executing"})
-                yield sse("result", response)
-                yield sse("done", {"run_id": response["run_id"]})
-            except GraphRecursionError as exc:
-                _metric_inc(
-                    AGENT_TURNS_TOTAL,
-                    endpoint="/chat/stream",
-                    input_mode=trace_meta["input_mode"],
-                    status="failed",
-                )
-                LOGGER.warning(
-                    "Graph recursion limit hit during stream (thread=%s dataset=%s): %s",
-                    thread_id,
-                    request.dataset_id,
-                    exc,
-                )
-                yield sse(
-                    "error",
-                    {
-                        "type": "AGENT_RECURSION_LIMIT",
-                        "message": (
-                            "I hit an internal reasoning limit while refining that request. "
-                            "Please retry with explicit fields/tables."
-                        ),
-                    },
-                )
-                yield sse("done", {})
+                async for event in session.stream_agent(
+                    request.dataset_id, request.message, thread_id
+                ):
+                    if event["event"] == "result":
+                        response = event["data"]
+                    yield sse(event["event"], event["data"])
             except KeyError as exc:
                 _metric_inc(
                     AGENT_TURNS_TOTAL,
@@ -1070,6 +1029,7 @@ def create_app(
                 )
                 yield sse("error", {"type": "NOT_FOUND", "message": str(exc)})
                 yield sse("done", {})
+                return
             except Exception as exc:  # pragma: no cover
                 _metric_inc(
                     AGENT_TURNS_TOTAL,
@@ -1084,6 +1044,24 @@ def create_app(
                 )
                 yield sse("error", {"type": "AGENT_ERROR", "message": str(exc)})
                 yield sse("done", {})
+                return
+
+            _metric_inc(
+                AGENT_TURNS_TOTAL,
+                endpoint="/chat/stream",
+                input_mode=trace_meta["input_mode"],
+                status=str(response.get("status", "failed")) if response else "failed",
+            )
+            _log_structured(
+                logging.INFO,
+                "chat.stream.request.completed",
+                request_id=req_id,
+                dataset_id=request.dataset_id,
+                thread_id=response.get("thread_id", thread_id) if response else thread_id,
+                run_id=response.get("run_id") if response else None,
+                input_mode=trace_meta["input_mode"],
+                status=response.get("status") if response else "failed",
+            )
 
         return StreamingResponse(agent_stream(), media_type="text/event-stream")
 
@@ -1104,16 +1082,12 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         run_id = str(uuid.uuid4())
+        execution_run_id: Optional[str] = None
         created_at = _utc_now_iso()
         query_mode = request.query_type
         compiled_sql: Optional[str] = None
         plan_json = request.plan_json
         python_code_val = request.python_code
-
-        files = [
-            {"name": e["name"], "path": f"/data/{e['path']}"}
-            for e in dataset.get("files", [])
-        ]
 
         if request.query_type == "sql":
             if not request.sql:
@@ -1134,16 +1108,14 @@ def create_app(
                 }
                 status = "rejected"
             else:
-                payload = {
-                    "dataset_id": dataset["id"],
-                    "files": files,
-                    "query_type": "sql",
-                    "timeout_seconds": settings.run_timeout_seconds,
-                    "max_rows": settings.max_rows,
-                    "max_output_bytes": settings.max_output_bytes,
-                    "sql": sql,
-                }
-                raw = sandbox_executor.submit_run(payload, query_type="sql")
+                raw = execute_in_sandbox(
+                    sandbox_executor, dataset,
+                    query_type="sql", sql=sql,
+                    timeout_seconds=settings.run_timeout_seconds,
+                    max_rows=settings.max_rows,
+                    max_output_bytes=settings.max_output_bytes,
+                )
+                execution_run_id = raw.get("run_id")
                 runner_result = raw.get("result", raw)
                 status = _map_runner_status(runner_result)
                 result_payload = {
@@ -1151,6 +1123,8 @@ def create_app(
                     "rows": runner_result.get("rows", []),
                     "row_count": runner_result.get("row_count", 0),
                     "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "stdout_trunc": runner_result.get("stdout_trunc", ""),
+                    "stderr_trunc": runner_result.get("stderr_trunc", ""),
                     "error": runner_result.get("error"),
                 }
 
@@ -1173,16 +1147,14 @@ def create_app(
                 }
                 status = "rejected"
             else:
-                payload = {
-                    "dataset_id": dataset["id"],
-                    "files": files,
-                    "query_type": "python",
-                    "timeout_seconds": settings.run_timeout_seconds,
-                    "max_rows": settings.max_rows,
-                    "max_output_bytes": settings.max_output_bytes,
-                    "python_code": request.python_code,
-                }
-                raw = sandbox_executor.submit_run(payload, query_type="python")
+                raw = execute_in_sandbox(
+                    sandbox_executor, dataset,
+                    query_type="python", python_code=request.python_code,
+                    timeout_seconds=settings.run_timeout_seconds,
+                    max_rows=settings.max_rows,
+                    max_output_bytes=settings.max_output_bytes,
+                )
+                execution_run_id = raw.get("run_id")
                 runner_result = raw.get("result", raw)
                 status = _map_runner_status(runner_result)
                 result_payload = {
@@ -1190,6 +1162,8 @@ def create_app(
                     "rows": runner_result.get("rows", []),
                     "row_count": runner_result.get("row_count", 0),
                     "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "stdout_trunc": runner_result.get("stdout_trunc", ""),
+                    "stderr_trunc": runner_result.get("stderr_trunc", ""),
                     "error": runner_result.get("error"),
                 }
 
@@ -1222,16 +1196,14 @@ def create_app(
                 }
                 status = "rejected"
             else:
-                payload = {
-                    "dataset_id": dataset["id"],
-                    "files": files,
-                    "query_type": "sql",
-                    "timeout_seconds": settings.run_timeout_seconds,
-                    "max_rows": settings.max_rows,
-                    "max_output_bytes": settings.max_output_bytes,
-                    "sql": sql,
-                }
-                raw = sandbox_executor.submit_run(payload, query_type="sql")
+                raw = execute_in_sandbox(
+                    sandbox_executor, dataset,
+                    query_type="sql", sql=sql,
+                    timeout_seconds=settings.run_timeout_seconds,
+                    max_rows=settings.max_rows,
+                    max_output_bytes=settings.max_output_bytes,
+                )
+                execution_run_id = raw.get("run_id")
                 runner_result = raw.get("result", raw)
                 status = _map_runner_status(runner_result)
                 result_payload = {
@@ -1239,12 +1211,14 @@ def create_app(
                     "rows": runner_result.get("rows", []),
                     "row_count": runner_result.get("row_count", 0),
                     "exec_time_ms": runner_result.get("exec_time_ms", 0),
+                    "stdout_trunc": runner_result.get("stdout_trunc", ""),
+                    "stderr_trunc": runner_result.get("stderr_trunc", ""),
                     "error": runner_result.get("error"),
                 }
 
         response = ChatResponse(
             assistant_message="Run submitted and executed.",
-            run_id=run_id,
+            run_id=execution_run_id or run_id,
             status=(
                 status
                 if status in {"succeeded", "failed", "rejected", "timed_out"}
@@ -1263,7 +1237,7 @@ def create_app(
         insert_capsule(
             settings.capsule_db_path,
             {
-                "run_id": run_id,
+                "run_id": response.run_id,
                 "created_at": created_at,
                 "dataset_id": request.dataset_id,
                 "dataset_version_hash": dataset.get("version_hash"),
@@ -1288,7 +1262,7 @@ def create_app(
             logging.INFO,
             "runs.request.completed",
             request_id=req_id,
-            run_id=run_id,
+            run_id=response.run_id,
             dataset_id=request.dataset_id,
             query_mode=query_mode,
             status=response.status,
@@ -1331,9 +1305,19 @@ def create_app(
     return app
 
 
-# Module-level app instance for uvicorn; guarded so test imports don't fail
-# when no LLM key is configured or provider packages are incompatible.
+# Module-level app instance for uvicorn. On initialization failure, emit an
+# explicit error log and expose a deterministic 500 health response.
 try:
     app = create_app()
-except Exception:  # pragma: no cover
-    app = None  # type: ignore[assignment]
+except Exception as exc:  # pragma: no cover
+    logging.basicConfig(level=logging.ERROR)
+    LOGGER.exception("Application startup failed: %s", exc)
+
+    app = FastAPI(title="CSV Analyst Agent Server (Startup Error)")
+
+    @app.get("/healthz")
+    async def healthz_startup_failure():
+        return PlainTextResponse(
+            "startup_error: application failed to initialize",
+            status_code=500,
+        )

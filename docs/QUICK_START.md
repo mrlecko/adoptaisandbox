@@ -99,11 +99,20 @@ Use the UI to select dataset and send a question, or explicit execution mode:
 make run-agent
 make run-agent-dev
 make run-agent-microsandbox
+make deploy-all-local
+make helm-template-k8s-job
+make helm-template-microsandbox
+make helm-install-k8s-job
+make helm-install-microsandbox
 make test-agent-server
 make test-runner
 make test-microsandbox
 make test-unit
 ```
+
+Kubernetes profile docs:
+- `docs/runbooks/K8S_HELM_PROFILE_CONTEXTS.md`
+- `DEPLOYMENT.md`
 
 ## Notes
 
