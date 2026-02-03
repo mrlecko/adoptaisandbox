@@ -37,6 +37,7 @@ Important arrangement:
 ## Quick Start
 
 For a strict, copy/paste first-run guide, see `FIRST_RUN.md`.
+For agent-oriented project onboarding and navigation, see `AGENT_SIGNPOST.md`.
 
 ### 1) Install dependencies
 
