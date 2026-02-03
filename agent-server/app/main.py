@@ -16,6 +16,7 @@ import csv
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import uuid
@@ -125,6 +126,26 @@ SQL_BLOCKLIST = [
 ]
 
 
+def _contains_blocked_sql_token(sql_lower: str, token: str) -> bool:
+    pattern = rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])"
+    return re.search(pattern, sql_lower) is not None
+
+
+def _normalize_sql_for_dataset(sql: str, dataset_id: str) -> str:
+    """Allow optional dataset-qualified table refs like support.tickets."""
+    normalized = re.sub(
+        rf'(?i)"{re.escape(dataset_id)}"\s*\.\s*',
+        "",
+        sql,
+    )
+    normalized = re.sub(
+        rf"(?i)\b{re.escape(dataset_id)}\s*\.\s*",
+        "",
+        normalized,
+    )
+    return normalized
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -168,7 +189,7 @@ def _validate_sql_policy(sql: str) -> Optional[str]:
         return "Multiple SQL statements are not allowed."
 
     for token in SQL_BLOCKLIST:
-        if token in lowered:
+        if _contains_blocked_sql_token(lowered, token):
             return f"SQL contains blocked token: {token}"
 
     return None
@@ -689,6 +710,8 @@ def create_app(
                     compiled_sql = services.compiler.compile(plan)
                     sql = compiled_sql
                     assistant_message = "LLM unavailable or invalid response; executed a safe fallback query."
+
+        sql = _normalize_sql_for_dataset(sql, request.dataset_id)
 
         status_cb("validating")
         sql_policy_error = _validate_sql_policy(sql)
