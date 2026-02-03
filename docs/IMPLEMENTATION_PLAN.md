@@ -12,7 +12,7 @@ This document outlines a pragmatic, low-risk, incremental approach to building t
 
 ---
 
-## Progress Update (2026-02-02)
+## Progress Update (2026-02-03)
 
 Implemented:
 - Dataset generation + registry (`datasets/registry.json`)
@@ -24,6 +24,12 @@ Implemented:
 - Minimal static UI from same app (`GET /`) using streaming chat API
 - Run capsule persistence + retrieval (`GET /runs/{run_id}`)
 - Single-file server integration tests (`tests/integration/test_agent_server_singlefile.py`)
+- Makefile venv enforcement for server/test commands (`agent-server/.venv`)
+- LLM structured-output compatibility hardening (dict coercion + SQL rescue pass)
+- SQL validation hardening:
+  - token boundary matching to avoid false positives
+  - dataset-qualified table reference normalization
+- Python execution extension specification (`PYTHON_EXECUTION_SPEC.md`)
 
 Architecture note:
 - QueryPlan DSL is handled upstream in agent-server; runner receives validated SQL + dataset file references only.
@@ -39,6 +45,7 @@ Agent server usage today:
 Not yet implemented:
 - Production-grade SQL validator coverage (beyond current denylist baseline)
 - Full production deployment/runtime (K8s Job executor + Helm hardening)
+- Python execution in runner (same image, separate entrypoint) implementation
 
 ---
 
@@ -245,11 +252,11 @@ graph LR
 
 ### Phase 1 Checkpoint: Local E2E Working (Day 2 end)
 
-**Deliverable:** `docker compose up` → working chatbot
+**Deliverable:** `make run-agent-dev` -> working chatbot + static UI
 
 **Acceptance test:**
-- [ ] Run `make dev` (starts compose)
-- [ ] Open http://localhost:3000
+- [ ] Run `make run-agent-dev`
+- [ ] Open http://localhost:8000
 - [ ] Select "Ecommerce" dataset
 - [ ] Ask: "What's the average discount by category?"
 - [ ] Get correct result table within 3 seconds
@@ -557,7 +564,7 @@ graph LR
 ## Success Metrics
 
 ### MVP Success (must achieve):
-- [ ] Local dev works (`docker compose up`)
+- [ ] Local dev works (`make run-agent-dev`)
 - [ ] K8s deploy works (`helm install`)
 - [ ] Online deploy works (public URL)
 - [ ] 12+ prompts succeed
@@ -601,13 +608,13 @@ graph LR
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Agent Framework | LangChain | Industry standard, tool support, streaming |
-| LLM | Claude 3.5 Sonnet (via API) | Best reasoning, structured output |
-| UI | LangChain Agent UI (stock) | Speed, simplicity, no custom frontend |
+| LLM | OpenAI/Anthropic (configurable) | Flexible provider support for structured generation |
+| UI | Static UI served by FastAPI | Minimal footprint, no separate UI service required |
 | API Server | FastAPI | Fast, modern, async, good for LangChain |
 | SQL Engine | DuckDB | Embedded, fast, good CSV support |
-| Sandbox (local) | Docker SDK for Python | Easy container management |
+| Sandbox (local) | Docker CLI via subprocess | Simple invocation, explicit runtime controls |
 | Sandbox (K8s) | Kubernetes Jobs | Native, secure, scalable |
-| Deployment | Docker Compose (local), Helm (K8s) | Standard tools |
+| Deployment | Local FastAPI run (`make run-agent-dev`), Helm (planned K8s) | Fast local loop + production path |
 | Storage | SQLite (capsules) | Simple, no external DB needed for PoC |
 | Logging | Python logging (JSON) | Structured, easy to search |
 | Testing | pytest | Standard Python testing |
@@ -639,34 +646,25 @@ adoptaisandbox/
 │   │   ├── orders.csv
 │   │   ├── order_items.csv
 │   │   └── inventory.csv
-│   ├── support_tickets/
+│   ├── support/
 │   │   └── tickets.csv
 │   └── sensors/
 │       └── sensors.csv
 ├── agent-server/
-│   ├── Dockerfile
-│   ├── pyproject.toml (or requirements.txt)
-│   ├── main.py (FastAPI app)
-│   ├── agent.py (LangChain agent graph)
-│   ├── models.py (Pydantic models: QueryPlan, RunnerRequest, etc.)
-│   ├── compiler.py (QueryPlan → SQL)
-│   ├── validator.py (SQL policy validator)
-│   ├── datasets.py (dataset registry loader)
-│   ├── capsules.py (run capsule storage)
-│   ├── executors/
-│   │   ├── base.py (Executor interface)
-│   │   ├── docker_executor.py
-│   │   └── k8s_executor.py
-│   └── tests/
-│       ├── unit/
-│       └── integration/
+│   ├── requirements.txt
+│   ├── README.md
+│   ├── demo_query_plan.py
+│   └── app/
+│       ├── main.py
+│       ├── models/
+│       └── validators/
 ├── runner/
 │   ├── Dockerfile
 │   ├── runner.py
 │   └── requirements.txt
-├── ui/
-│   ├── (LangChain Agent UI files)
-│   └── Dockerfile
+├── PYTHON_EXECUTION_SPEC.md
+├── AGENT_SERVER_SPECIFICATION.md
+├── ui/ (future/optional standalone UI path)
 ├── helm/
 │   └── csv-analyst-chat/
 │       ├── Chart.yaml

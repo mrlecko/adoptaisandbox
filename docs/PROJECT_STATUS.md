@@ -1,6 +1,6 @@
 # Project Status Report
 
-**Last Updated**: 2026-02-02  
+**Last Updated**: 2026-02-03  
 **Current Phase**: Phase 1 - Foundations + Minimal Product Surface
 
 ## Overall Progress
@@ -32,6 +32,12 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 - ✅ Minimal static UI served from same app
 - ✅ Streaming wired through `POST /chat/stream`
 - ✅ Integration tests (`tests/integration/test_agent_server_singlefile.py`)
+- ✅ LLM-output hardening:
+  - dict response coercion for structured output compatibility
+  - non-executable draft handling + SQL rescue pass
+- ✅ SQL policy hardening:
+  - denylist token word-boundary checks (fixes `created_at` false positive)
+  - dataset-qualified table normalization for runner compatibility
 
 ## In Progress 🚧
 
@@ -53,10 +59,10 @@ Phase 3: Polish & Deployment          ░░░░░░░░░░░░░░
 ```text
 tests/unit/test_query_plan.py               36 tests ✅
 tests/unit/test_compiler.py                 30 tests ✅
-tests/integration/test_agent_server_singlefile.py  7 tests ✅
+tests/integration/test_agent_server_singlefile.py 11 tests ✅
 tests/integration/test_runner_container.py   7 tests ✅
 -----------------------------------------------------
-TOTAL                                       80 tests ✅
+TOTAL                                       84 tests ✅
 ```
 
 ### Datasets
@@ -80,4 +86,5 @@ TOTAL         69,893 rows    5 files
 1. Tighten SQL policy validator and rejection messaging.
 2. Add more end-to-end tests per use-case prompt.
 3. Improve UI details panel and run inspection flow.
-4. Begin production-shape execution path (K8s + Helm).
+4. Implement Python execution path (same runner image, separate entrypoint) per `PYTHON_EXECUTION_SPEC.md`.
+5. Begin production-shape execution path (K8s + Helm).

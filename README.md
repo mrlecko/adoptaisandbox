@@ -2,7 +2,7 @@
 
 LLM-assisted CSV analysis with sandboxed SQL execution.
 
-## Current Status (2026-02-02)
+## Current Status (2026-02-03)
 
 Implemented now:
 - ✅ Dataset generation + registry (`datasets/registry.json`)
@@ -12,6 +12,9 @@ Implemented now:
 - ✅ Minimal static UI served by the same FastAPI app (`GET /`)
 - ✅ Streaming chat endpoint (`POST /chat/stream`) and run capsule persistence (`SQLite`)
 - ✅ Integration tests for runner + single-file server
+- ✅ Makefile now enforces `agent-server/.venv` for server/test commands
+- ✅ LLM structured-output hardening (dict output coercion + SQL rescue pass)
+- ✅ SQL policy hardening (word-boundary denylist + dataset-qualified table normalization)
 
 In progress:
 - 🚧 Stronger SQL policy coverage and red-team scenarios
@@ -36,11 +39,7 @@ Important arrangement:
 ### 1) Install dependencies
 
 ```bash
-cd agent-server
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cd ..
+make agent-venv
 ```
 
 ### 2) Configure environment
@@ -100,9 +99,9 @@ make test-runner
 
 Current validated counts:
 - `66` unit tests (QueryPlan/compiler)
-- `7` single-file server integration tests
+- `11` single-file server integration tests
 - `7` runner integration tests
-- `80` total in this validated suite
+- `84` total in this validated suite
 
 ## Make Targets You’ll Use Most
 
@@ -142,3 +141,4 @@ Defined in `.env.example`:
 
 - This repo is optimized for a clear PoC narrative: deterministic DSL + secure execution boundary + minimal server/UI footprint.
 - For the detailed server design, see `AGENT_SERVER_SPECIFICATION.md`.
+- For the Python-in-runner extension plan (same image, separate entrypoint), see `PYTHON_EXECUTION_SPEC.md`.

@@ -50,16 +50,21 @@ Key vars:
 From repo root:
 
 ```bash
+make agent-venv
 make run-agent-dev
 ```
 
 or directly:
 
 ```bash
-uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
+agent-server/.venv/bin/uvicorn app.main:app --app-dir agent-server --host 0.0.0.0 --port 8000 --reload
 ```
 
 Then open `http://localhost:8000`.
+
+Notes:
+- `make run-agent*` uses `agent-server/.venv/bin/uvicorn` (consistent runtime/deps).
+- If LLM structured output is non-executable, server attempts a SQL-rescue pass before safe fallback.
 
 ## Tests
 
@@ -79,3 +84,10 @@ python3 demo_query_plan.py
 ```
 
 This demonstrates the DSL and deterministic SQL compilation path used by the server when plan mode is selected.
+
+## Forward Plan
+
+Python sandbox execution is specified in `PYTHON_EXECUTION_SPEC.md`:
+- same runner image
+- separate Python entrypoint
+- AST policy + output controls

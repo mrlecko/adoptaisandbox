@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test suite for single-file server (`tests/integration/test_agent_server_singlefile.py`)
 - Agent server run targets in Makefile: `run-agent`, `run-agent-dev`, `test-agent-server`
 - Server specification doc: `AGENT_SERVER_SPECIFICATION.md`
+- Python execution design spec: `PYTHON_EXECUTION_SPEC.md` (same runner image, separate entrypoint plan)
 
 ### Changed
 - Updated CLAUDE.md with dataset generation and testing guidance
@@ -67,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated implementation/status docs with runner usage and test workflow
 - Updated docs for single-file server usage, static UI, streaming endpoint, and env placement
 - Updated root `.env.example` to include provider/runtime configuration for the single-file server
+- Updated Makefile to enforce `agent-server/.venv` for server and Python test targets (`agent-venv` bootstrap)
+- Updated TODO/docs status to include sequenced Phase 1 Python-execution implementation checklist
 
 ### Deprecated
 - N/A
@@ -78,6 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support tickets edge cases where `resolved_at < created_at`
 - Sensors edge cases with out-of-range humidity values
 - Runner image base now uses `python:3.11-slim` for DuckDB wheel compatibility in local test builds
+- LLM structured output compatibility issue where dict output caused attribute errors in chat flow
+- SQL policy false positive where `created_at` matched blocked token `create`
+- Dataset-qualified SQL table references (e.g., `support.tickets`) now normalize to runner-loaded table names
 
 ### Security
 - SQL injection prevention in QueryPlan compiler

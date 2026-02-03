@@ -88,12 +88,14 @@
 **PRD Mapping:** Section 9, FR-Q1-Q3
 
 ### P1.3 SQL Validation (FR-SQL1, FR-SQL2, FR-SQL3)
-- [ ] Implement SQL policy validator
-  - [ ] Denylist: DROP, DELETE, INSERT, UPDATE, CREATE, ALTER, ATTACH, INSTALL, LOAD, PRAGMA, CALL, COPY, EXPORT
-  - [ ] Allowlist mode: SELECT, WITH, common expressions
-  - [ ] Case-insensitive matching
+- [~] Implement SQL policy validator
+  - [x] Denylist: DROP, DELETE, INSERT, UPDATE, CREATE, ALTER, ATTACH, INSTALL, LOAD, PRAGMA, CALL, COPY, EXPORT
+  - [x] Allowlist mode: SELECT, WITH
+  - [x] Case-insensitive matching
+  - [x] Prevent false positives from substring matches (e.g., `created_at` vs `create`)
+  - [x] Normalize dataset-qualified table refs in SQL path (e.g., `support.tickets` -> `tickets`)
 - [ ] (Stretch) Implement SQL AST parser for stricter validation
-- [ ] Write unit tests for SQL validator (allowed/forbidden queries)
+- [~] Write tests for SQL validator (allowed/forbidden queries)
 - [ ] Write "red team" test fixtures (injection attempts)
 
 **PRD Mapping:** FR-SQL1-SQL3, Section 15.3
@@ -200,6 +202,44 @@ _Note: MVP currently uses static UI served by FastAPI (`GET /`) instead of LangC
 **PRD Mapping:** FR-UI1-UI3
 
 **Deliverable:** Local dev environment works end-to-end via `make run-agent-dev`
+
+### P1.9 Python Execution in Runner (Same Image, Separate Entrypoint)
+_Reference: `PYTHON_EXECUTION_SPEC.md`_
+
+#### Sequenced implementation checklist (execute in this order)
+1. **Runner contract + feature flag**
+   - [ ] Add `query_type` (`sql|python`) to RunnerRequest
+   - [ ] Add `python_code` and `max_output_bytes` fields
+   - [ ] Add `ENABLE_PYTHON_EXECUTION` env toggle in agent-server
+2. **Shared runner utilities**
+   - [ ] Extract shared request/response/sanitization helpers into `runner/common.py`
+   - [ ] Keep SQL path behavior backward compatible
+3. **Python runner entrypoint**
+   - [ ] Create `runner/runner_python.py`
+   - [ ] Keep same image; use separate runtime entrypoint (`--entrypoint python3 /app/runner_python.py`)
+   - [ ] Load CSVs into `dfs` and table globals (`orders`, `tickets`, etc.)
+4. **Python safety policy**
+   - [ ] Implement AST validation allowlist/blocklist
+   - [ ] Block `open`, `exec`, `eval`, `__import__`, subprocess/network/file-system modules
+   - [ ] Enforce deterministic rejection with `PYTHON_POLICY_VIOLATION`
+5. **Python result normalization**
+   - [ ] Support `result_df`, `result_rows` (+ optional `result_columns`), and scalar/list `result`
+   - [ ] Enforce `max_rows` and `max_output_bytes`
+   - [ ] Map runtime failures to standardized errors (`PYTHON_EXECUTION_ERROR`, `RUNNER_TIMEOUT`, etc.)
+6. **Agent-server integration**
+   - [ ] Add `execute_python(dataset_id, python_code)` tool path
+   - [ ] Extend chat flow for explicit Python requests (no automatic NL->Python in first cut)
+   - [ ] Persist `query_type` + `python_code` in run capsules
+7. **UI + streaming**
+   - [ ] Show `query_type` in details panel
+   - [ ] Render Python code when query_type is python
+   - [ ] Keep streaming stage flow unchanged (`planning`, `validating`, `executing`, `result`, `done`)
+8. **TDD gates**
+   - [ ] Unit tests: AST policy, request validation, result normalization
+   - [ ] Integration tests: python happy path, blocked import, timeout, output limits
+   - [ ] Security tests: subprocess/network/file access attempts rejected
+
+**Deliverable:** Python sandbox execution available via same runner image with separate entrypoint, without regressing SQL mode.
 
 ---
 

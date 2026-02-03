@@ -11,12 +11,10 @@ Get the current PoC running locally (single-file FastAPI server + sandboxed runn
 ## 1) Install agent-server dependencies
 
 ```bash
-cd agent-server
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cd ..
+make agent-venv
 ```
+
+This creates/updates `agent-server/.venv` and is the environment used by `make run-agent*` and test targets.
 
 ## 2) Configure environment
 
@@ -52,7 +50,7 @@ make build-runner-test
 ## 4) Run tests (sanity)
 
 ```bash
-pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
+agent-server/.venv/bin/pytest tests/unit/test_query_plan.py tests/unit/test_compiler.py -q
 make test-agent-server
 make test-runner
 ```
