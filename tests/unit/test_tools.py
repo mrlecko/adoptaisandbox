@@ -168,6 +168,39 @@ def test_execute_sql_created_at_not_false_positive():
     assert len(executor.calls) == 1
 
 
+def test_execute_sql_missing_table_includes_schema_hint():
+    executor = FakeExecutor(
+        default_result={
+            "run_id": "fake-run-err",
+            "status": "failed",
+            "result": {
+                "status": "error",
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "exec_time_ms": 3,
+                "error": {
+                    "type": "SQL_EXECUTION_ERROR",
+                    "message": "Catalog Error: Table with name product_sales does not exist!",
+                },
+            },
+        }
+    )
+    tools = _make_tools(executor=executor)
+    result = json.loads(
+        _tool_by_name(tools, "execute_sql").invoke(
+            {
+                "dataset_id": "ecommerce",
+                "sql": "SELECT AVG(discount) FROM product_sales",
+            }
+        )
+    )
+    assert result["status"] == "error"
+    assert "schema_hint" in result
+    assert "order_items" in result["schema_hint"]["tables"]
+    assert "discount" in result["schema_hint"]["tables"]["order_items"]
+
+
 # ── execute_query_plan ────────────────────────────────────────────────────
 
 

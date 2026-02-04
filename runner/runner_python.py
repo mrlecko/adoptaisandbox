@@ -53,23 +53,48 @@ BLOCKED_CALLS = {"open", "exec", "eval", "compile", "__import__", "input"}
 # Methods blocked on specific namespace variables (pd.read_csv, np.load, etc.)
 BLOCKED_MODULE_METHODS = {
     "pd": {
-        "read_csv", "read_excel", "read_json", "read_parquet", "read_table",
-        "read_fwf", "read_html", "read_sql", "read_clipboard", "read_stata",
-        "read_sas", "read_spss", "read_orc", "read_pickle",
+        "read_csv",
+        "read_excel",
+        "read_json",
+        "read_parquet",
+        "read_table",
+        "read_fwf",
+        "read_html",
+        "read_sql",
+        "read_clipboard",
+        "read_stata",
+        "read_sas",
+        "read_spss",
+        "read_orc",
+        "read_pickle",
     },
     "np": {
-        "load", "save", "savez", "savez_compressed",
-        "fromfile", "tofile", "loadtxt", "savetxt", "genfromtxt",
+        "load",
+        "save",
+        "savez",
+        "savez_compressed",
+        "fromfile",
+        "tofile",
+        "loadtxt",
+        "savetxt",
+        "genfromtxt",
     },
 }
 
 # Write-method names blocked on ANY object (covers df.to_csv, series.to_parquet, etc.)
 BLOCKED_WRITE_ATTRS = {
-    "to_csv", "to_excel", "to_parquet", "to_pickle", "to_sql",
-    "to_stata", "to_clipboard", "to_orc",
+    "to_csv",
+    "to_excel",
+    "to_parquet",
+    "to_pickle",
+    "to_sql",
+    "to_stata",
+    "to_clipboard",
+    "to_orc",
 }
 
 LAST_EXPR_RESULT_VAR = "__last_expr_result"
+
 
 class RunnerRequest:
     def __init__(self, data: Dict[str, Any]):
@@ -92,6 +117,7 @@ class RunnerRequest:
         if self.max_output_bytes <= 1024 or self.max_output_bytes > 1_000_000:
             return "max_output_bytes must be between 1024 and 1000000"
         return None
+
 
 def validate_python_policy(code: str) -> Optional[str]:
     try:
@@ -122,7 +148,10 @@ def validate_python_policy(code: str) -> Optional[str]:
                     mod = node.func.value.id
                     if mod in BLOCKED_MODULES:
                         return f"Blocked module access: {mod}"
-                    if mod in BLOCKED_MODULE_METHODS and attr_name in BLOCKED_MODULE_METHODS[mod]:
+                    if (
+                        mod in BLOCKED_MODULE_METHODS
+                        and attr_name in BLOCKED_MODULE_METHODS[mod]
+                    ):
                         return f"Blocked method: {mod}.{attr_name}"
                 if attr_name in BLOCKED_WRITE_ATTRS:
                     return f"Blocked method: {attr_name}"
@@ -188,7 +217,9 @@ def _safe_builtins() -> Dict[str, Any]:
     }
 
 
-def _convert_to_table(local_ns: Dict[str, Any], max_rows: int) -> tuple[list[str], list[list[Any]]]:
+def _convert_to_table(
+    local_ns: Dict[str, Any], max_rows: int
+) -> tuple[list[str], list[list[Any]]]:
     if "result_df" in local_ns:
         result_df = local_ns["result_df"]
         if not isinstance(result_df, pd.DataFrame):
@@ -213,7 +244,9 @@ def _convert_to_table(local_ns: Dict[str, Any], max_rows: int) -> tuple[list[str
             sliced = result.head(max_rows)
             return [str(c) for c in sliced.columns], sliced.values.tolist()
         if isinstance(result, dict):
-            return ["key", "value"], [[k, v] for k, v in list(result.items())[:max_rows]]
+            return ["key", "value"], [
+                [k, v] for k, v in list(result.items())[:max_rows]
+            ]
         if isinstance(result, list):
             rows = result[:max_rows]
             if rows and isinstance(rows[0], list):
@@ -225,7 +258,9 @@ def _convert_to_table(local_ns: Dict[str, Any], max_rows: int) -> tuple[list[str
     return [], []
 
 
-def _trim_rows_to_output_limit(columns: list[str], rows: list[list[Any]], max_output_bytes: int) -> list[list[Any]]:
+def _trim_rows_to_output_limit(
+    columns: list[str], rows: list[list[Any]], max_output_bytes: int
+) -> list[list[Any]]:
     trimmed = list(rows)
     while trimmed:
         payload = json.dumps({"columns": columns, "rows": trimmed}, default=str)
@@ -251,7 +286,12 @@ def execute_python(request: RunnerRequest) -> RunnerResponse:
     try:
         dfs = load_csvs(request.files)
 
-        global_ns: Dict[str, Any] = {"__builtins__": _safe_builtins(), "pd": pd, "np": np, "dfs": dfs}
+        global_ns: Dict[str, Any] = {
+            "__builtins__": _safe_builtins(),
+            "pd": pd,
+            "np": np,
+            "dfs": dfs,
+        }
         local_ns: Dict[str, Any] = {}
         for name, df in dfs.items():
             global_ns[name] = df
@@ -311,7 +351,10 @@ def main() -> int:
         raw_input = sys.stdin.read().strip()
         if not raw_input:
             response.status = "error"
-            response.error = {"type": "VALIDATION_ERROR", "message": "No input provided"}
+            response.error = {
+                "type": "VALIDATION_ERROR",
+                "message": "No input provided",
+            }
             print(response.to_json())
             return 1
 
@@ -319,7 +362,10 @@ def main() -> int:
             data = json.loads(raw_input)
         except json.JSONDecodeError as exc:
             response.status = "error"
-            response.error = {"type": "VALIDATION_ERROR", "message": f"Invalid JSON: {exc}"}
+            response.error = {
+                "type": "VALIDATION_ERROR",
+                "message": f"Invalid JSON: {exc}",
+            }
             print(response.to_json())
             return 1
 
@@ -334,7 +380,10 @@ def main() -> int:
         policy_error = validate_python_policy(request.python_code)
         if policy_error:
             response.status = "error"
-            response.error = {"type": "PYTHON_POLICY_VIOLATION", "message": policy_error}
+            response.error = {
+                "type": "PYTHON_POLICY_VIOLATION",
+                "message": policy_error,
+            }
             print(response.to_json())
             return 1
 

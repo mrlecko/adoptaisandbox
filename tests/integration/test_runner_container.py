@@ -145,7 +145,10 @@ def _run_runner_python(payload: dict) -> tuple[int, dict, str]:
                 "dataset_id": "ecommerce",
                 "files": [
                     {"name": "orders.csv", "path": "/data/ecommerce/orders.csv"},
-                    {"name": "order_items.csv", "path": "/data/ecommerce/order_items.csv"},
+                    {
+                        "name": "order_items.csv",
+                        "path": "/data/ecommerce/order_items.csv",
+                    },
                     {"name": "inventory.csv", "path": "/data/ecommerce/inventory.csv"},
                 ],
                 "sql": (
@@ -272,7 +275,9 @@ def test_python_runner_executes_dataframe_code():
     }
     return_code, response, stderr = _run_runner_python(payload)
 
-    assert return_code == 0, f"python runner failed: stderr={stderr}, response={response}"
+    assert (
+        return_code == 0
+    ), f"python runner failed: stderr={stderr}, response={response}"
     assert response.get("status") == "success"
     assert response.get("row_count", 0) > 0
     assert "priority" in response.get("columns", [])
@@ -290,7 +295,9 @@ def test_python_runner_captures_trailing_expression_result():
     }
     return_code, response, stderr = _run_runner_python(payload)
 
-    assert return_code == 0, f"python runner failed: stderr={stderr}, response={response}"
+    assert (
+        return_code == 0
+    ), f"python runner failed: stderr={stderr}, response={response}"
     assert response.get("status") == "success"
     assert response.get("columns") == ["value"]
     assert response.get("rows") == [[3]]

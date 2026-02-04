@@ -24,6 +24,17 @@ from .execution import execute_in_sandbox
 EXECUTION_TOOL_NAMES = {"execute_sql", "execute_query_plan", "execute_python"}
 
 
+def _schema_hint(dataset: Dict[str, Any]) -> Dict[str, Any]:
+    """Return compact table->columns mapping for SQL repair hints."""
+    tables: Dict[str, List[str]] = {}
+    for f in dataset.get("files", []):
+        name = str(f.get("name", "")).strip()
+        table = name[:-4] if name.lower().endswith(".csv") else name
+        schema = f.get("schema", {}) or {}
+        tables[table] = list(schema.keys())
+    return {"tables": tables}
+
+
 def create_tools(
     *,
     executor: Executor,
@@ -143,6 +154,16 @@ def create_tools(
         raw = _run_sandbox(dataset, sql, query_type="sql")
         result = raw.get("result", raw)
         result["compiled_sql"] = sql
+        error = result.get("error") or {}
+        error_msg = str(error.get("message", "")).lower()
+        if result.get("status") == "error" and (
+            "table with name" in error_msg
+            or ("column" in error_msg and "does not exist" in error_msg)
+            or "no such table" in error_msg
+            or "no such column" in error_msg
+        ):
+            # Give the model structured schema grounding so it can repair SQL.
+            result["schema_hint"] = _schema_hint(dataset)
         return json.dumps(result)
 
     # ── tool: execute_query_plan ─────────────────────────────────────────

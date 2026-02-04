@@ -391,11 +391,24 @@ def test_run_agent_injects_last_successful_run_context(tmp_path):
     )
 
     graph = _SpyGraph()
-    session = AgentSession(graph, store, str(db_path), history_window=12)
+    datasets_dir = Path(__file__).parent.parent.parent / "datasets"
+    session = AgentSession(
+        graph,
+        store,
+        str(db_path),
+        history_window=12,
+        datasets_dir=str(datasets_dir),
+    )
     response = session.run_agent("support", "give me those again with names", "t1")
 
     assert response["status"] == "succeeded"
     messages = graph.last_payload["messages"]
+    assert any(
+        isinstance(msg, SystemMessage)
+        and "Dataset schema context" in str(msg.content)
+        and "table tickets" in str(msg.content)
+        for msg in messages
+    )
     assert any(
         isinstance(msg, SystemMessage)
         and "Previous successful run context" in str(msg.content)

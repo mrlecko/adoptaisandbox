@@ -638,6 +638,7 @@ def create_app(
         message_store,
         settings.capsule_db_path,
         history_window=settings.thread_history_window,
+        datasets_dir=settings.datasets_dir,
     )
 
     # ── FastAPI app ─────────────────────────────────────────────────────

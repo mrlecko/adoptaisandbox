@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -27,6 +28,7 @@ from langchain_core.messages import (
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
+from .datasets import get_dataset_by_id, load_registry
 from .storage import MessageStore
 from .storage.capsules import get_capsule, insert_capsule
 from .tools import EXECUTION_TOOL_NAMES
@@ -42,7 +44,10 @@ SYSTEM_PROMPT_TEMPLATE = (
     "- Use execute_python only when the user explicitly asks for pandas/Python.\n"
     "- If a user asks for any value derived from the dataset (count, top, max/min, trend, date, aggregate), "
     "you MUST execute an execution tool before answering.\n"
+    "- Prefer using exact table and column names from schema context/tool output. Do not invent table names.\n"
     "- Never describe a query you would run without actually running it.\n"
+    "- If execute_sql returns a missing table/column error, call get_dataset_schema(dataset_id) and retry once with corrected SQL.\n"
+    "- Do not claim data is unavailable unless schema inspection confirms required fields are absent.\n"
     "- After you receive a successful execution result that answers the user, STOP calling tools and provide the final answer.\n"
     "- For follow-up requests that refine prior results (e.g., 'those again but with name'), reuse prior run context and execute one focused query.\n"
     "- For greetings, capability questions, or schema questions you can answer "
@@ -223,6 +228,29 @@ def _last_successful_run_context(
     return None
 
 
+def _dataset_schema_context(dataset_id: str, datasets_dir: str) -> Optional[str]:
+    """Build compact schema grounding context for the current dataset."""
+    try:
+        registry = load_registry(datasets_dir)
+        dataset = get_dataset_by_id(registry, dataset_id)
+    except Exception:
+        return None
+
+    lines = [
+        "Dataset schema context (use these exact table/column names):",
+        f"- dataset_id: {dataset_id}",
+    ]
+    for file_info in dataset.get("files", []):
+        raw_name = str(file_info.get("name", "")).strip()
+        table_name = Path(raw_name).stem if raw_name else raw_name
+        schema = file_info.get("schema", {}) or {}
+        columns = list(schema.keys())
+        preview = ", ".join(columns[:30]) if columns else "(schema unavailable)"
+        lines.append(f"- table {table_name}: {preview}")
+
+    return "\n".join(lines)
+
+
 class AgentSession:
     """Stateful session that wires history, invocation, persistence."""
 
@@ -232,11 +260,13 @@ class AgentSession:
         message_store: MessageStore,
         capsule_db_path: str,
         history_window: int = 12,
+        datasets_dir: Optional[str] = None,
     ):
         self.agent_graph = agent_graph
         self.message_store = message_store
         self.capsule_db_path = capsule_db_path
         self.history_window = max(1, history_window)
+        self.datasets_dir = datasets_dir
 
     def run_agent(
         self,
@@ -262,6 +292,10 @@ class AgentSession:
 
         # Build input messages: history + new user message
         input_messages = _history_to_messages(history)
+        if self.datasets_dir:
+            schema_context = _dataset_schema_context(dataset_id, self.datasets_dir)
+            if schema_context:
+                input_messages.append(SystemMessage(content=schema_context))
         prior_context = _last_successful_run_context(
             history,
             dataset_id,
@@ -425,6 +459,10 @@ class AgentSession:
         )
 
         input_messages = _history_to_messages(history)
+        if self.datasets_dir:
+            schema_context = _dataset_schema_context(dataset_id, self.datasets_dir)
+            if schema_context:
+                input_messages.append(SystemMessage(content=schema_context))
         prior_context = _last_successful_run_context(
             history,
             dataset_id,
