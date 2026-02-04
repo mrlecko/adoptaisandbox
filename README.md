@@ -4,6 +4,11 @@ LLM-assisted CSV analysis with sandboxed SQL/Python execution.
 
 ## Current Status (2026-02-03)
 
+Status source of truth:
+- `TODO.md` → **Status Source of Truth** section (canonical implementation status)
+- `docs/PRD/*.md` define target requirements and acceptance criteria (not live status trackers)
+- Verification artifacts: `docs/EVIDENCE.md`
+
 Implemented now:
 - ✅ Dataset generation + registry (`datasets/registry.json`)
 - ✅ QueryPlan DSL + deterministic compiler (`agent-server/demo_query_plan.py` flow)
@@ -38,8 +43,8 @@ Important arrangement:
 
 For a strict, copy/paste first-run guide, see `FIRST_RUN.md`.
 For agent-oriented project onboarding and navigation, see `AGENT_SIGNPOST.md`.
-For the shared human+agent iteration philosophy, see `MANIFESTO.md`.
 For a full architecture/use-case map in plain language, see `SOLUTION_ARCHITECTURE_MAP.md`.
+For deterministic local startup validation, run `make first-run-check`.
 
 ### 1) Install dependencies
 
@@ -147,6 +152,7 @@ Current suite:
 - Integration tests (`tests/integration`)
 - Security tests (`tests/security`)
 - Optional live MicroSandbox integration (`RUN_MICROSANDBOX_TESTS=1`)
+- CI gating now runs: lint + unit/security + agent integration + Docker runner/executor integration before image builds
 
 Tip:
 - `agent-server/.venv/bin/pytest tests --collect-only -q` shows the current collected test total for your local branch.
@@ -155,6 +161,7 @@ Tip:
 
 - `make run-agent`
 - `make run-agent-dev`
+- `make first-run-check`
 - `make run-agent-microsandbox`
 - `make run-mlflow`
 - `make test-agent-server`

@@ -10,6 +10,30 @@
 
 ---
 
+## Status Source of Truth
+
+This file is the canonical implementation status tracker for the repository.
+
+- Canonical section: **Status Map** (below)
+- `README.md` should summarize and link here
+- `docs/PRD/*.md` remain requirement/acceptance definitions, not live completion logs
+
+---
+
+## Status Map (Canonical, 2026-02-03)
+
+| Area | Status | Notes |
+|---|---|---|
+| Phase 0 / bootstrap | ✅ Complete | Base project structure and docs in place |
+| Phase 1 / core local MVP | ✅ Complete | Datasets, agent, runner, tools, tests, UI |
+| Python sandbox mode | ✅ Complete | Separate runner entrypoint in same image |
+| MicroSandbox provider | ✅ Implemented | Optional profile, not default |
+| K8s Job executor + Helm | ✅ Implemented | Local kind flow available |
+| Live-cluster hardening proof | 🚧 In progress | Final acceptance evidence + CI polish pending |
+| P0 interview hardening | ✅ Complete | Golden path, status map, evidence bundle, CI consistency hardening |
+
+---
+
 ## Status Snapshot (2026-02-03)
 
 - ✅ **Phase 0 complete** (bootstrap/planning).
@@ -20,9 +44,16 @@
 - ✅ **MLflow tracing integrated** (OpenAI autolog + session metadata on chat turns).
 - ✅ **Helm chart scaffold implemented** (`helm/csv-analyst-chat`) with schema/templates and local kind smoke path.
 - ✅ **K8sJobExecutor path implemented** (`SANDBOX_PROVIDER=k8s`, per-run Job submission + log/result parsing).
+- ✅ **P0 interview hardening complete** (`make first-run-check`, status map normalization, evidence bundle, CI hardening).
 - 🚧 **Main remaining PRD gap** is live-cluster acceptance/hardening (kind/DOKS validation, runner NetworkPolicy enforcement, CI k8s smoke).
 
 > Note: some deeper Phase 2/3/4 checkbox items below are stale relative to recent implementation work and should be normalized in a follow-up pass.
+
+### P0 Interview Hardening Checklist
+- [x] Freeze single golden local demo path (`make first-run-check`)
+- [x] Normalize README/PRD/TODO status source of truth
+- [x] Capture deterministic evidence bundle (`docs/EVIDENCE.md`)
+- [x] Harden CI for image/test consistency
 
 ---
 

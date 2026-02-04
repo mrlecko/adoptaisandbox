@@ -1,0 +1,28 @@
+✓ Agent virtualenv ready at agent-server/.venv
+docker build -t csv-analyst-runner:test ./runner
+Running runner integration tests...
+RUNNER_TEST_IMAGE=csv-analyst-runner:test agent-server/.venv/bin/pytest tests/integration/test_runner_container.py tests/integration/test_docker_executor_integration.py -v
+============================= test session starts ==============================
+platform linux -- Python 3.13.2, pytest-8.4.2, pluggy-1.6.0 -- /home/juancho/projects/adoptaisandbox/agent-server/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/juancho/projects/adoptaisandbox
+plugins: anyio-4.12.1, langsmith-0.6.8, cov-6.3.0, asyncio-0.26.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 14 items
+
+tests/integration/test_runner_container.py::test_runner_executes_queries[ecommerce_join-payload0] PASSED [  7%]
+tests/integration/test_runner_container.py::test_runner_executes_queries[support_aggregate-payload1] PASSED [ 14%]
+tests/integration/test_runner_container.py::test_runner_executes_queries[sensors_aggregate-payload2] PASSED [ 21%]
+tests/integration/test_runner_container.py::test_runner_rejects_path_outside_data_root PASSED [ 28%]
+tests/integration/test_runner_container.py::test_runner_rejects_relative_csv_path PASSED [ 35%]
+tests/integration/test_runner_container.py::test_runner_rejects_unsafe_table_name PASSED [ 42%]
+tests/integration/test_runner_container.py::test_runner_classifies_timeouts PASSED [ 50%]
+tests/integration/test_runner_container.py::test_python_runner_executes_dataframe_code PASSED [ 57%]
+tests/integration/test_runner_container.py::test_python_runner_blocks_dangerous_imports PASSED [ 64%]
+tests/integration/test_runner_container.py::test_python_runner_classifies_timeouts PASSED [ 71%]
+tests/integration/test_runner_container.py::test_python_runner_enforces_output_byte_limit PASSED [ 78%]
+tests/integration/test_runner_container.py::test_runner_container_blocks_network_egress PASSED [ 85%]
+tests/integration/test_docker_executor_integration.py::test_docker_executor_executes_sql_query PASSED [ 92%]
+tests/integration/test_docker_executor_integration.py::test_docker_executor_executes_python_query PASSED [100%]
+
+============================= 14 passed in 26.23s ==============================

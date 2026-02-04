@@ -1,0 +1,16 @@
+INFO:     Started server process [601788]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18080 (Press CTRL+C to quit)
+INFO:csv-analyst-agent-server:{"duration_ms": 1, "endpoint": "/healthz", "event": "http.request.completed", "method": "GET", "request_id": "req-fb842982-b472-4a99-9f89-1ad80d629bf1", "run_id": null, "status_code": 200, "thread_id": null}
+INFO:     127.0.0.1:36204 - "GET /healthz HTTP/1.1" 200 OK
+INFO:csv-analyst-agent-server:{"duration_ms": 1, "endpoint": "/datasets", "event": "http.request.completed", "method": "GET", "request_id": "req-d7e82d2f-ed23-4d70-ae4f-8624a9d6df14", "run_id": null, "status_code": 200, "thread_id": null}
+INFO:     127.0.0.1:36206 - "GET /datasets HTTP/1.1" 200 OK
+INFO:csv-analyst-agent-server:{"dataset_id": "support", "event": "chat.request.received", "input_mode": "sql", "request_id": "req-7b053963-062a-4049-ac42-5fd64243f08a", "thread_id": "first-run-check"}
+INFO:csv-analyst-agent-server:{"dataset_id": "support", "event": "chat.request.completed", "input_mode": "sql", "request_id": "req-7b053963-062a-4049-ac42-5fd64243f08a", "run_id": "589a0293-d0a5-40c0-b7f0-05c63dc80c47", "status": "succeeded", "thread_id": "first-run-check"}
+INFO:csv-analyst-agent-server:{"duration_ms": 1826, "endpoint": "/chat", "event": "http.request.completed", "method": "POST", "request_id": "req-7b053963-062a-4049-ac42-5fd64243f08a", "run_id": null, "status_code": 200, "thread_id": null}
+INFO:     127.0.0.1:36220 - "POST /chat HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [601788]

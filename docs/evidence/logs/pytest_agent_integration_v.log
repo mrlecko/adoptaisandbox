@@ -1,0 +1,51 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.2, pytest-8.4.2, pluggy-1.6.0 -- /home/juancho/projects/adoptaisandbox/agent-server/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/juancho/projects/adoptaisandbox
+plugins: anyio-4.12.1, langsmith-0.6.8, cov-6.3.0, asyncio-0.26.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 31 items
+
+tests/integration/test_agent_server_singlefile.py::test_get_datasets_returns_registry_entries PASSED [  3%]
+tests/integration/test_agent_server_singlefile.py::test_request_id_header_is_attached PASSED [  6%]
+tests/integration/test_agent_server_singlefile.py::test_metrics_endpoint_exposes_http_and_turn_counters PASSED [  9%]
+tests/integration/test_agent_server_singlefile.py::test_metrics_endpoint_exposes_sandbox_run_counter PASSED [ 12%]
+tests/integration/test_agent_server_singlefile.py::test_get_dataset_schema_returns_schema PASSED [ 16%]
+tests/integration/test_agent_server_singlefile.py::test_home_serves_static_ui PASSED [ 19%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_happy_path_creates_capsule PASSED [ 22%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_sets_mlflow_session_trace_metadata PASSED [ 25%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_policy_violation_rejected PASSED [ 29%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_timeout_maps_timed_out PASSED [ 32%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_created_at_not_false_positive PASSED [ 35%]
+tests/integration/test_agent_server_singlefile.py::test_chat_sql_normalizes_dataset_qualified PASSED [ 38%]
+tests/integration/test_agent_server_singlefile.py::test_chat_python_happy_path PASSED [ 41%]
+tests/integration/test_agent_server_singlefile.py::test_chat_python_rejected_when_disabled PASSED [ 45%]
+tests/integration/test_agent_server_singlefile.py::test_post_runs_sql_executes_and_persists PASSED [ 48%]
+tests/integration/test_agent_server_singlefile.py::test_post_runs_python_executes_and_persists PASSED [ 51%]
+tests/integration/test_agent_server_singlefile.py::test_get_run_status_endpoint PASSED [ 54%]
+tests/integration/test_agent_server_singlefile.py::test_chat_greeting_no_execution PASSED [ 58%]
+tests/integration/test_agent_server_singlefile.py::test_chat_schema_question_no_execution PASSED [ 61%]
+tests/integration/test_agent_server_singlefile.py::test_chat_llm_chat_response PASSED [ 64%]
+tests/integration/test_agent_server_singlefile.py::test_chat_scalar_result_summarized PASSED [ 67%]
+tests/integration/test_agent_server_singlefile.py::test_chat_complex_result_summary PASSED [ 70%]
+tests/integration/test_agent_server_singlefile.py::test_chat_llm_generates_sql PASSED [ 74%]
+tests/integration/test_agent_server_singlefile.py::test_chat_llm_retries_after_sql_error PASSED [ 77%]
+tests/integration/test_agent_server_singlefile.py::test_chat_stateful_memory_thread PASSED [ 80%]
+tests/integration/test_agent_server_singlefile.py::test_chat_thread_isolation PASSED [ 83%]
+tests/integration/test_agent_server_singlefile.py::test_chat_ecommerce_followup_includes_product_name PASSED [ 87%]
+tests/integration/test_agent_server_singlefile.py::test_chat_stream_events PASSED [ 90%]
+tests/integration/test_agent_server_singlefile.py::test_chat_stream_agent_tool_path_serializes_events PASSED [ 93%]
+tests/integration/test_agent_server_singlefile.py::test_chat_implicit_python_via_agent PASSED [ 96%]
+tests/integration/test_agent_server_singlefile.py::test_chat_llm_calls_execute_python PASSED [100%]
+
+=============================== warnings summary ===============================
+<frozen abc>:106
+  <frozen abc>:106: LangGraphDeprecatedSinceV10: AgentStatePydantic has been moved to `langchain.agents`. Please update your import to `from langchain.agents import AgentStatePydantic`. Deprecated in LangGraph V1.0 to be removed in V2.0.
+
+agent-server/app/agent.py:62: 1 warning
+tests/integration/test_agent_server_singlefile.py: 31 warnings
+  /home/juancho/projects/adoptaisandbox/agent-server/app/agent.py:62: LangGraphDeprecatedSinceV10: create_react_agent has been moved to `langchain.agents`. Please update your import to `from langchain.agents import create_agent`. Deprecated in LangGraph V1.0 to be removed in V2.0.
+    return create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 31 passed, 33 warnings in 7.24s ========================

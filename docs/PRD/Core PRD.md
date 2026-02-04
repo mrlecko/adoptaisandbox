@@ -5,6 +5,8 @@
 - **Product name (working):** CSV Analyst Chat
     
 - **Version:** v1.0
+
+- **Implementation status tracking:** `TODO.md` ("Status Source of Truth" / "Status Map")
     
 - **Primary goal:** Demonstrate production-minded AI engineering: tool-using agent + safe execution + deployable system + auditable outputs.
     

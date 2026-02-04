@@ -1,5 +1,8 @@
 # PRD Addendum: Local Dev, Environments, Deployment Plan, Hosting Action Item
 
+Implementation status tracking source of truth: `TODO.md` ("Status Source of Truth" / "Status Map").  
+This document defines target requirements and acceptance criteria.
+
 ## A) Environments & Goals
 
 ### ENV-1: Local developer environment (mandatory)

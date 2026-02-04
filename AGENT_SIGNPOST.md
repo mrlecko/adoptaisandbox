@@ -18,10 +18,9 @@ If you are making changes, your default success criteria are:
 3. Existing tests continue to pass (or new failures are understood and documented).
 4. Docs and Make usage stay accurate.
 
-Shared alignment references:
-- Operating philosophy: `MANIFESTO.md`
-- Status source of truth: `TODO.md`
-- Verification evidence: `docs/EVIDENCE.md`
+Status + proof references:
+- Canonical status tracker: `TODO.md` ("Status Source of Truth" / "Status Map")
+- Deterministic verification logs: `docs/EVIDENCE.md`
 
 ---
 
@@ -101,6 +100,7 @@ The Makefile is broad; some targets are mature and some are placeholders.
 
 ## B. Local first-run path
 - Use `FIRST_RUN.md` for exact bootstrap sequence.
+- Use `make first-run-check` for deterministic pass/fail startup validation.
 - Minimum local requirement for sandbox execution: **Docker daemon running**.
 
 ## C. Kubernetes path (mature)
