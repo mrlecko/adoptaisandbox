@@ -28,3 +28,4 @@ build/
 
 # Local sqlite artifacts
 *.db
+docs/evidence/logs/first_run_check.log

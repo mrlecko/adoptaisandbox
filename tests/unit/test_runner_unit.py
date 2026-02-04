@@ -114,3 +114,46 @@ def test_python_trim_rows_to_output_limit():
         max_output_bytes=600,
     )
     assert len(trimmed) < len(rows)
+
+
+def test_python_compile_captures_trailing_expression():
+    code = py_runner._compile_user_code("x = 2\nx + 3")  # noqa: SLF001
+    ns = {}
+    exec(code, {"__builtins__": {}}, ns)  # noqa: S102
+    assert ns[py_runner.LAST_EXPR_RESULT_VAR] == 5
+
+
+def test_python_execute_uses_trailing_expression_as_result(monkeypatch):
+    monkeypatch.setattr(py_runner, "load_csvs", lambda _files: {})
+    req = py_runner.RunnerRequest(
+        {
+            "dataset_id": "support",
+            "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+            "python_code": "1 + 2",
+            "timeout_seconds": 5,
+            "max_rows": 10,
+            "max_output_bytes": 4096,
+        }
+    )
+    resp = py_runner.execute_python(req)
+    assert resp.status == "success"
+    assert resp.columns == ["value"]
+    assert resp.rows == [[3]]
+
+
+def test_python_execute_errors_when_no_result_is_produced(monkeypatch):
+    monkeypatch.setattr(py_runner, "load_csvs", lambda _files: {})
+    req = py_runner.RunnerRequest(
+        {
+            "dataset_id": "support",
+            "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+            "python_code": "x = 1\ny = x + 1",
+            "timeout_seconds": 5,
+            "max_rows": 10,
+            "max_output_bytes": 4096,
+        }
+    )
+    resp = py_runner.execute_python(req)
+    assert resp.status == "error"
+    assert resp.error is not None
+    assert "produced no tabular/scalar result" in resp.error["message"]

@@ -69,6 +69,8 @@ BLOCKED_WRITE_ATTRS = {
     "to_stata", "to_clipboard", "to_orc",
 }
 
+LAST_EXPR_RESULT_VAR = "__last_expr_result"
+
 class RunnerRequest:
     def __init__(self, data: Dict[str, Any]):
         self.dataset_id = data.get("dataset_id", "unknown")
@@ -129,6 +131,18 @@ def validate_python_policy(code: str) -> Optional[str]:
                 return f"Blocked dunder access: {node.attr}"
 
     return None
+
+
+def _compile_user_code(code: str):
+    """Compile user code, capturing a trailing expression into a synthetic variable."""
+    tree = ast.parse(code, mode="exec")
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        tree.body[-1] = ast.Assign(
+            targets=[ast.Name(id=LAST_EXPR_RESULT_VAR, ctx=ast.Store())],
+            value=tree.body[-1].value,
+        )
+        ast.fix_missing_locations(tree)
+    return compile(tree, "<runner_python>", "exec")
 
 
 def load_csvs(files: List[Dict[str, str]]) -> Dict[str, pd.DataFrame]:
@@ -242,10 +256,26 @@ def execute_python(request: RunnerRequest) -> RunnerResponse:
         for name, df in dfs.items():
             global_ns[name] = df
 
+        compiled_code = _compile_user_code(request.python_code)
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-            exec(request.python_code, global_ns, local_ns)
+            exec(compiled_code, global_ns, local_ns)
+
+        # If the user ended code with an expression, treat it as the result unless
+        # they already provided an explicit result variable.
+        if (
+            LAST_EXPR_RESULT_VAR in local_ns
+            and "result_df" not in local_ns
+            and "result_rows" not in local_ns
+            and "result" not in local_ns
+        ):
+            local_ns["result"] = local_ns[LAST_EXPR_RESULT_VAR]
 
         columns, rows = _convert_to_table(local_ns, request.max_rows)
+        if not columns and not rows:
+            raise ValueError(
+                "Python code produced no tabular/scalar result. "
+                "Set result/result_df/result_rows, or end with an expression."
+            )
         rows = _trim_rows_to_output_limit(columns, rows, request.max_output_bytes)
 
         response.columns = columns

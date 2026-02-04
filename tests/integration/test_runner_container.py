@@ -279,6 +279,23 @@ def test_python_runner_executes_dataframe_code():
     assert "ticket_count" in response.get("columns", [])
 
 
+def test_python_runner_captures_trailing_expression_result():
+    payload = {
+        "dataset_id": "support",
+        "files": [{"name": "tickets.csv", "path": "/data/support/tickets.csv"}],
+        "python_code": "1 + 2",
+        "timeout_seconds": 10,
+        "max_rows": 10,
+        "max_output_bytes": 65536,
+    }
+    return_code, response, stderr = _run_runner_python(payload)
+
+    assert return_code == 0, f"python runner failed: stderr={stderr}, response={response}"
+    assert response.get("status") == "success"
+    assert response.get("columns") == ["value"]
+    assert response.get("rows") == [[3]]
+
+
 def test_python_runner_blocks_dangerous_imports():
     payload = {
         "dataset_id": "support",
