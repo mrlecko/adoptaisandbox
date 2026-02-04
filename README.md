@@ -38,6 +38,7 @@ Important arrangement:
 
 For a strict, copy/paste first-run guide, see `FIRST_RUN.md`.
 For agent-oriented project onboarding and navigation, see `AGENT_SIGNPOST.md`.
+For the shared human+agent iteration philosophy, see `MANIFESTO.md`.
 For a full architecture/use-case map in plain language, see `SOLUTION_ARCHITECTURE_MAP.md`.
 
 ### 1) Install dependencies

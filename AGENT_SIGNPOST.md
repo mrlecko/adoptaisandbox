@@ -18,6 +18,11 @@ If you are making changes, your default success criteria are:
 3. Existing tests continue to pass (or new failures are understood and documented).
 4. Docs and Make usage stay accurate.
 
+Shared alignment references:
+- Operating philosophy: `MANIFESTO.md`
+- Status source of truth: `TODO.md`
+- Verification evidence: `docs/EVIDENCE.md`
+
 ---
 
 ## 2) Fast Project Mental Model
@@ -220,4 +225,3 @@ For fastest onboarding, read in this order:
 6. `runner/runner.py` and `runner/runner_python.py`
 7. `tests/integration/test_agent_server_singlefile.py`
 8. `DEPLOYMENT.md`
-
